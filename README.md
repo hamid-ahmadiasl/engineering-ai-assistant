@@ -4,6 +4,10 @@ Decision-support chat for mechanical and process engineers working on pressure e
 
 **[Live demo](https://engineering-ai-assistant-i9fb.onrender.com).** The free host sleeps when idle, so the first load may take about 30–60 seconds.
 
+![Sign-in](docs/ui-auth.png)
+
+![Chat](docs/ui-chat.png)
+
 The shipped corpus is original demo text. It is not ASME, API, TEMA, ASTM, ISO, or EN, and it is not for design.
 
 ## What you can do

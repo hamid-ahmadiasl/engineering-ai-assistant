@@ -1,160 +1,203 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Engineering AI Assistant</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Newsreader:opsz,wght@6..72,500;6..72,650&family=Vazirmatn:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&family=Vazirmatn:wght@400;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/styles.css" />
+  <script>
+    (function () {
+      var theme = localStorage.getItem("eai_theme") || "dark";
+      document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
+    })();
+  </script>
 </head>
 <body>
   <div id="auth" class="auth">
-    <div class="auth-card">
-      <div class="lang-switch" role="group" aria-label="Language">
-        <button type="button" data-lang="en">English</button>
-        <button type="button" data-lang="fa">فارسی</button>
+    <section class="auth-hero">
+      <div class="auth-gridlines" aria-hidden="true"></div>
+      <div class="auth-flow" aria-hidden="true"></div>
+      <div class="auth-hero-inner">
+        <div class="brand-mark" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19V5m0 14h16M8 16l3-6 3 3 4-7"/></svg>
+        </div>
+        <p class="eyebrow" data-i18n="eyebrow">Decision support · mechanical and process</p>
+        <h1 data-i18n="title">Engineering AI Assistant</h1>
+        <p class="lede" data-i18n="lede">Ask about pressure equipment and heat exchangers. Answers stay tied to the global notes and the project file you select. A person still makes the decision.</p>
+        <ul class="feature-list">
+          <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg><span data-i18n="featCodes">Codes and standards stay with the project that licensed them.</span></li>
+          <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 8h10M7 12h10M7 16h6"/></svg><span data-i18n="featCite">Every figure carries a clause, a page, and an edition.</span></li>
+          <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/></svg><span data-i18n="featHuman">The assistant stops before the design decision.</span></li>
+        </ul>
       </div>
-      <p class="eyebrow" data-i18n="eyebrow">Decision support · mechanical and process</p>
-      <h1 data-i18n="title">Engineering AI Assistant</h1>
-      <p class="lede" data-i18n="lede">Ask about pressure equipment and heat exchangers. Answers stay tied to the global notes and the project file you select. A person still makes the decision.</p>
-      <div class="auth-grid">
+    </section>
+    <section class="auth-panel">
+      <div class="auth-card">
+        <div class="auth-tools">
+          <div class="lang-switch" role="group" aria-label="Language">
+            <button type="button" data-lang="en">English</button>
+            <button type="button" data-lang="fa">فارسی</button>
+          </div>
+          <button class="theme-toggle" type="button" data-theme-set="toggle" aria-pressed="false">Theme</button>
+        </div>
+        <div class="tabs" role="tablist">
+          <button type="button" class="active" data-auth-tab="login" data-i18n="signIn">Sign in</button>
+          <button type="button" data-auth-tab="register" data-i18n="createAccount">Create an account</button>
+        </div>
         <form id="login-form">
-          <h2 data-i18n="signIn">Sign in</h2>
           <label><span data-i18n="email">Email</span> <input name="email" type="email" autocomplete="username" required /></label>
           <label><span data-i18n="password">Password</span> <input name="password" type="password" autocomplete="current-password" required /></label>
           <button class="primary" type="submit" data-i18n="signIn">Sign in</button>
           <p class="form-error" data-for="login"></p>
         </form>
-        <form id="register-form">
-          <h2 data-i18n="createAccount">Create an account</h2>
+        <form id="register-form" hidden>
           <label><span data-i18n="email">Email</span> <input name="email" type="email" autocomplete="email" required /></label>
           <label><span data-i18n="password">Password</span> <input name="password" type="password" autocomplete="new-password" minlength="8" required /></label>
           <label><span data-i18n="accessCode">Access code</span> <input name="code" type="text" data-i18n-placeholder="codePlaceholder" placeholder="Optional unless the demo requires one" /></label>
           <button class="primary" type="submit" data-i18n="create">Create account</button>
           <p class="form-error" data-for="register"></p>
         </form>
+        <div class="trial-row">
+          <button id="trial" class="ghost" type="button" data-i18n="trial">Continue with a limited trial</button>
+          <p data-i18n="trialHint">The trial can question the demo exchanger only. It cannot upload files.</p>
+        </div>
       </div>
-      <div class="trial-row">
-        <button id="trial" class="ghost" type="button" data-i18n="trial">Continue with a limited trial</button>
-        <p data-i18n="trialHint">The trial can question the demo exchanger only. It cannot upload files.</p>
-      </div>
-    </div>
+    </section>
   </div>
 
   <div id="shell" class="shell" hidden>
-    <header class="top">
-      <div class="brand">
-        <span class="mark" aria-hidden="true"></span>
+    <aside class="library" id="sidebar">
+      <div class="side-head">
+        <div class="brand-mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19V5m0 14h16M8 16l3-6 3 3 4-7"/></svg></div>
         <div>
           <strong data-i18n="title">Engineering AI Assistant</strong>
           <em data-i18n="tagline">Evidence first. No autonomous design.</em>
         </div>
+        <button id="close-sidebar" class="icon-btn mobile-only" type="button" aria-label="Close">×</button>
       </div>
       <label class="project-pick">
         <span data-i18n="project">Project</span>
         <select id="project"></select>
       </label>
-      <div class="credit-pill" id="credits" data-i18n-title="credits" title="Monthly credits"></div>
-      <div class="who" id="who"></div>
-      <div class="lang-switch" role="group" aria-label="Language">
-        <button type="button" data-lang="en">EN</button>
-        <button type="button" data-lang="fa">فا</button>
-      </div>
-      <button id="connect-drive" class="ghost small" type="button" hidden data-i18n="connectDrive">Connect Google Drive</button>
-      <button id="open-admin" class="ghost small" type="button" hidden data-i18n="admin">Admin</button>
-      <button id="logout" class="ghost small" type="button" data-i18n="signOut">Sign out</button>
-    </header>
-
-    <div class="workspace">
-      <aside class="library">
-        <section>
-          <header>
-            <h2 data-i18n="codesStandards">Codes &amp; Standards</h2>
-          </header>
-          <p class="hint" data-i18n="codesHint">Licensed codes for this project only, such as ASME VIII or TEMA. They stay out of the global notes.</p>
-          <p id="drive-hint" class="hint" hidden data-i18n="driveHint">Connect your own Google Drive before uploading. Files stay in your Drive until you delete them.</p>
-          <ul id="standard-docs" class="doc-list"></ul>
-          <form id="standard-form" class="upload">
-            <input name="file" type="file" accept=".pdf,.xlsx,.xlsm,.txt,.md,.csv,.png,.jpg,.jpeg,.tif,.tiff" />
-            <label><span data-i18n="standardName">Standard name</span> <input name="standard_name" type="text" maxlength="200" data-i18n-placeholder="standardNamePlaceholder" placeholder="ASME VIII" /></label>
-            <div class="upload-fields">
-              <label><span data-i18n="editionYear">Edition / year</span> <input name="edition" type="text" maxlength="40" placeholder="2023" /></label>
-              <label><span data-i18n="partDivision">Part / division</span> <input name="part" type="text" maxlength="40" data-i18n-placeholder="partPlaceholder" placeholder="Div. 1" /></label>
-            </div>
-            <button class="primary" type="submit" data-i18n="addStandard">Add code or standard</button>
-            <p class="form-error" data-for="standard"></p>
-          </form>
-        </section>
-        <section>
-          <header>
-            <h2 data-i18n="projectDocs">Project documents</h2>
-          </header>
-          <ul id="project-docs" class="doc-list"></ul>
-          <form id="upload-form" class="upload">
-            <p class="hint" data-i18n="uploadHint">PDF or Excel. State the revision so citations can carry it.</p>
-            <input id="file" name="file" type="file" accept=".pdf,.xlsx,.xlsm,.txt,.md,.csv,.png,.jpg,.jpeg,.tif,.tiff" />
-            <div class="upload-fields">
-              <label><span data-i18n="type">Type</span>
-                <select name="doc_type">
-                  <option value="project_spec" data-i18n="spec">Project specification</option>
-                  <option value="datasheet" data-i18n="datasheet">Datasheet</option>
-                  <option value="vendor" data-i18n="vendor">Vendor document</option>
-                  <option value="requisition" data-i18n="requisition">Requisition</option>
-                  <option value="upload" data-i18n="otherFile">Other project file</option>
-                </select>
-              </label>
-              <label><span data-i18n="revision">Revision</span> <input name="revision" type="text" maxlength="40" placeholder="C" /></label>
-            </div>
-            <button class="primary" type="submit" data-i18n="addDoc">Add to this project</button>
-            <p class="form-error" data-for="upload"></p>
-          </form>
-        </section>
-        <section>
-          <header><h2 data-i18n="globalNotes">Global knowledge notes</h2></header>
-          <p class="hint" data-i18n="globalHint">Shared across projects. The shipped notes are original demo text, not licensed codes.</p>
-          <ul id="kb-docs" class="doc-list"></ul>
-        </section>
-      </aside>
-
-      <main class="conversation">
-        <p class="banner" data-i18n="banner">Decision support only. Every figure below is for a qualified engineer to check against the cited page. The assistant does not approve a design.</p>
-        <div id="messages" class="messages"></div>
-        <form id="composer" class="composer">
-          <div class="modes" role="radiogroup" aria-label="Answer mode">
-            <label><input type="radio" name="mode" value="auto" checked /> <span data-i18n="auto">Auto</span></label>
-            <label><input type="radio" name="mode" value="qa" /> <span data-i18n="ask">Ask</span></label>
-            <label><input type="radio" name="mode" value="compare" /> <span data-i18n="compare">Compare</span></label>
-            <label><input type="radio" name="mode" value="troubleshoot" /> <span data-i18n="troubleshoot">Troubleshoot</span></label>
+      <div id="drive-pill" class="drive-pill" hidden></div>
+      <section>
+        <header><h2 data-i18n="codesStandards">Codes &amp; Standards</h2></header>
+        <p class="hint" data-i18n="codesHint">Licensed codes for this project only, such as ASME VIII or TEMA. They stay out of the global notes.</p>
+        <p id="drive-hint" class="hint" hidden data-i18n="driveHint">Connect your own Google Drive before uploading. Files stay in your Drive until you delete them.</p>
+        <ul id="standard-docs" class="doc-list"></ul>
+        <details class="uploader">
+          <summary data-i18n="addStandard">Add code or standard</summary>
+        <form id="standard-form" class="upload">
+          <input name="file" type="file" accept=".pdf,.xlsx,.xlsm,.txt,.md,.csv,.png,.jpg,.jpeg,.tif,.tiff" />
+          <label><span data-i18n="standardName">Standard name</span> <input name="standard_name" type="text" maxlength="200" data-i18n-placeholder="standardNamePlaceholder" placeholder="ASME VIII" /></label>
+          <div class="upload-fields">
+            <label><span data-i18n="editionYear">Edition / year</span> <input name="edition" type="text" maxlength="40" placeholder="2023" /></label>
+            <label><span data-i18n="partDivision">Part / division</span> <input name="part" type="text" maxlength="40" data-i18n-placeholder="partPlaceholder" placeholder="Div. 1" /></label>
           </div>
-          <div class="prompts" id="prompts"></div>
-          <div class="mention-wrap">
-            <div id="mention-chips" class="mention-chips"></div>
-            <div id="mention-menu" class="mention-menu" hidden role="listbox"></div>
-            <div class="ask-row">
-              <textarea id="question" rows="3" data-i18n-placeholder="questionPlaceholder" placeholder="Ask about a requirement, a conflict, or a plant problem…" required></textarea>
-              <button class="primary" type="submit" id="send" data-i18n="send">Ask</button>
-            </div>
-          </div>
-          <p class="form-error" data-for="chat"></p>
+          <button class="primary" type="submit" data-i18n="addStandard">Add code or standard</button>
+          <p class="form-error" data-for="standard"></p>
         </form>
-      </main>
+        </details>
+      </section>
+      <section>
+        <header><h2 data-i18n="projectDocs">Project documents</h2></header>
+        <ul id="project-docs" class="doc-list"></ul>
+        <details class="uploader">
+          <summary data-i18n="addDoc">Add to this project</summary>
+        <form id="upload-form" class="upload">
+          <p class="hint" data-i18n="uploadHint">PDF or Excel. State the revision so citations can carry it.</p>
+          <input id="file" name="file" type="file" accept=".pdf,.xlsx,.xlsm,.txt,.md,.csv,.png,.jpg,.jpeg,.tif,.tiff" />
+          <div class="upload-fields">
+            <label><span data-i18n="type">Type</span>
+              <select name="doc_type">
+                <option value="project_spec" data-i18n="spec">Project specification</option>
+                <option value="datasheet" data-i18n="datasheet">Datasheet</option>
+                <option value="vendor" data-i18n="vendor">Vendor document</option>
+                <option value="requisition" data-i18n="requisition">Requisition</option>
+                <option value="upload" data-i18n="otherFile">Other project file</option>
+              </select>
+            </label>
+            <label><span data-i18n="revision">Revision</span> <input name="revision" type="text" maxlength="40" placeholder="C" /></label>
+          </div>
+          <button class="primary" type="submit" data-i18n="addDoc">Add to this project</button>
+          <p class="form-error" data-for="upload"></p>
+        </form>
+        </details>
+      </section>
+      <section>
+        <header><h2 data-i18n="globalNotes">Global knowledge notes</h2></header>
+        <p class="hint" data-i18n="globalHint">Shared across projects. The shipped notes are original demo text, not licensed codes.</p>
+        <ul id="kb-docs" class="doc-list"></ul>
+      </section>
+    </aside>
 
-      <aside class="evidence" id="evidence">
-        <header><h2 data-i18n="evidence">Evidence</h2></header>
-        <div id="evidence-body" class="evidence-body">
-          <p class="empty" data-i18n="evidenceEmpty">Citations, excerpts, and conflicts for the selected answer appear here.</p>
+    <main class="conversation">
+      <header class="top">
+        <button id="open-sidebar" class="icon-btn mobile-only" type="button" aria-label="Library">☰</button>
+        <div class="credit-pill" id="credits" data-i18n-title="credits" title="Monthly credits"></div>
+        <div class="who" id="who"></div>
+        <div class="top-tools">
+          <div class="lang-switch" role="group" aria-label="Language">
+            <button type="button" data-lang="en">EN</button>
+            <button type="button" data-lang="fa">فا</button>
+          </div>
+          <button class="theme-toggle" type="button" data-theme-set="toggle">Theme</button>
+          <button id="connect-drive" class="ghost small" type="button" hidden data-i18n="connectDrive">Connect Google Drive</button>
+          <button id="open-admin" class="ghost small" type="button" hidden data-i18n="admin">Admin</button>
+          <button id="open-evidence" class="icon-btn mobile-only" type="button" aria-label="Evidence">▣</button>
+          <button id="logout" class="ghost small" type="button" data-i18n="signOut">Sign out</button>
         </div>
-      </aside>
-    </div>
+      </header>
+      <div id="messages" class="messages">
+        <div id="empty-state" class="empty-state">
+          <h2 data-i18n="emptyTitle">What governs, and where does it say so?</h2>
+          <p class="lede" data-i18n="emptyLede">Pick a project, mention a file with @, or start from a prompt.</p>
+          <div class="prompts" id="prompts"></div>
+        </div>
+      </div>
+      <div id="typing" class="typing" hidden aria-hidden="true"><span></span><span></span><span></span></div>
+      <button id="jump-latest" class="jump-latest" type="button" hidden data-i18n="jumpLatest">Jump to latest</button>
+      <form id="composer" class="composer">
+        <div id="prompt-row" class="prompt-row" hidden></div>
+        <div class="modes" role="radiogroup" aria-label="Answer mode">
+          <label><input type="radio" name="mode" value="auto" checked /> <span data-i18n="auto">Auto</span></label>
+          <label><input type="radio" name="mode" value="qa" /> <span data-i18n="ask">Ask</span></label>
+          <label><input type="radio" name="mode" value="compare" /> <span data-i18n="compare">Compare</span></label>
+          <label><input type="radio" name="mode" value="troubleshoot" /> <span data-i18n="troubleshoot">Troubleshoot</span></label>
+        </div>
+        <div class="mention-wrap">
+          <div id="mention-chips" class="mention-chips"></div>
+          <div id="mention-menu" class="mention-menu" hidden role="listbox"></div>
+          <div class="ask-row">
+            <textarea id="question" rows="1" data-i18n-placeholder="questionPlaceholder" placeholder="Ask about a requirement, a conflict, or a plant problem…"></textarea>
+            <button class="primary" type="submit" id="send" data-i18n="send">Ask</button>
+          </div>
+        </div>
+        <p class="form-error" data-for="chat"></p>
+        <p class="composer-note" data-i18n="banner">Decision support only. Every figure below is for a qualified engineer to check against the cited page. The assistant does not approve a design.</p>
+      </form>
+    </main>
+
+    <aside class="evidence" id="evidence">
+      <header>
+        <h2 data-i18n="evidence">Evidence</h2>
+        <button id="close-evidence" class="icon-btn mobile-only" type="button" aria-label="Close">×</button>
+      </header>
+      <div id="evidence-body" class="evidence-body">
+        <p class="empty" data-i18n="evidenceEmpty">Citations, excerpts, and conflicts for the selected answer appear here.</p>
+      </div>
+    </aside>
+    <div id="sheet-backdrop" class="sheet-backdrop"></div>
   </div>
 
   <div id="admin" class="admin" hidden>
     <header class="top">
-      <div class="brand">
-        <span class="mark" aria-hidden="true"></span>
-        <div><strong data-i18n="administration">Administration</strong><em data-i18n="adminTag">Accounts, codes, and credits</em></div>
+      <div class="side-head">
+        <strong data-i18n="administration">Administration</strong>
+        <em data-i18n="adminTag">Accounts, codes, and credits</em>
       </div>
       <button id="close-admin" class="ghost small" type="button" data-i18n="back">Back to the assistant</button>
     </header>

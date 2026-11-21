@@ -112,6 +112,12 @@ async function refreshDrive() {
     const button = $("connect-drive");
     button.hidden = !status.available;
     button.textContent = status.connected ? t("disconnectDrive") : t("connectDrive");
+    const pill = $("drive-pill");
+    if (pill) {
+      pill.hidden = !status.available;
+      pill.textContent = status.connected ? t("driveOn") : t("driveOff");
+      pill.classList.toggle("on", !!status.connected);
+    }
     const hint = $("drive-hint");
     if (hint) hint.hidden = !(status.required && !status.connected);
   } catch {
@@ -170,14 +176,24 @@ async function renderDocs(kbDocuments) {
 
 function docItem(doc, canDelete) {
   const li = document.createElement("li");
+  const icon = document.createElement("span");
+  icon.className = "doc-ico";
+  icon.textContent = doc.doc_type === "standard" ? "§" : "▣";
+  const body = document.createElement("div");
   const strong = document.createElement("strong");
   strong.textContent = doc.title;
+  if (doc.edition) {
+    const edition = document.createElement("span");
+    edition.className = "edition-badge";
+    edition.textContent = doc.edition;
+    strong.appendChild(edition);
+  }
   const meta = document.createElement("span");
-  const edition = doc.edition ? `${t("edition")} ${doc.edition}` : "";
+  const editionText = doc.edition ? `${t("edition")} ${doc.edition}` : "";
   const rev = doc.doc_type === "standard"
     ? (doc.revision ? `${t("partDivision")} ${doc.revision}` : "")
     : (doc.revision ? `${t("revisionWord")} ${doc.revision}` : "");
-  meta.textContent = [doc.doc_type, edition, rev, doc.filename].filter(Boolean).join(" · ");
+  meta.textContent = [doc.doc_type, editionText, rev, doc.filename].filter(Boolean).join(" · ");
   const actions = document.createElement("div");
   actions.className = "doc-actions";
   const mention = document.createElement("button");
@@ -201,10 +217,12 @@ function docItem(doc, canDelete) {
   }
   if (doc.status === "source_missing") {
     const badge = document.createElement("span");
+    badge.className = "meta";
     badge.textContent = t("sourceMissing");
-    li.appendChild(badge);
+    body.appendChild(badge);
   }
-  li.append(strong, meta, actions);
+  body.append(strong, meta, actions);
+  li.append(icon, body);
   return li;
 }
 
@@ -339,25 +357,76 @@ function renderPrompts() {
   }
 }
 
-function addUserBubble(text) {
+let stickToBottom = true;
+
+function threadHasMessages() {
+  return !!$("messages").querySelector(".bubble");
+}
+
+function nearBottom() {
+  const scroller = $("messages");
+  return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
+}
+
+function scrollThread(force) {
+  const scroller = $("messages");
+  const jump = $("jump-latest");
+  if (force || stickToBottom) {
+    scroller.scrollTop = scroller.scrollHeight;
+    stickToBottom = true;
+    if (jump) jump.hidden = true;
+  } else if (jump) {
+    jump.hidden = false;
+  }
+}
+
+function syncEmpty() {
+  const started = threadHasMessages();
+  const empty = $("empty-state");
+  const row = $("prompt-row");
+  const prompts = $("prompts");
+  if (empty) empty.hidden = started;
+  if (prompts && row) {
+    prompts.classList.toggle("compact", started);
+    const slot = started ? row : empty;
+    if (slot && prompts.parentElement !== slot) slot.appendChild(prompts);
+    row.hidden = !started;
+  }
+}
+
+function bubbleShell(kind, label) {
   const node = document.createElement("div");
-  node.className = "bubble user";
+  node.className = `bubble ${kind}`;
+  const row = document.createElement("div");
+  row.className = "bubble-row";
+  const avatar = document.createElement("span");
+  avatar.className = "avatar";
+  avatar.textContent = label;
+  const body = document.createElement("div");
+  body.className = "bubble-body";
+  row.append(avatar, body);
+  node.appendChild(row);
+  return { node, body };
+}
+
+function addUserBubble(text) {
+  const { node, body } = bubbleShell("user", "You");
   node.dir = hasPersian(text) ? "rtl" : "ltr";
-  node.textContent = text;
+  body.textContent = text;
   $("messages").appendChild(node);
-  node.scrollIntoView({ block: "end" });
+  syncEmpty();
+  scrollThread(true);
 }
 
 function addAnswer(answer) {
   state.lastAnswer = answer;
-  const node = document.createElement("article");
-  node.className = "bubble assistant";
+  const { node, body } = bubbleShell("assistant", "AI");
   const answerFa = answer.answer_language === "fa" || (answer.blocks || []).some((block) => hasPersian(block.text));
   node.dir = answerFa ? "rtl" : "ltr";
   const mode = document.createElement("p");
   mode.className = "meta";
   mode.textContent = `${t(answer.mode) || answer.mode} · ${answer.generator === "llm" ? t("llmNote") : t("extractiveNote")}`;
-  node.appendChild(mode);
+  body.appendChild(mode);
   for (const block of answer.blocks || []) {
     const wrap = document.createElement("div");
     wrap.className = `block ${block.kind}`;
@@ -378,7 +447,7 @@ function addAnswer(answer) {
       cites.appendChild(chip);
     }
     wrap.appendChild(cites);
-    node.appendChild(wrap);
+    body.appendChild(wrap);
   }
   if ((answer.limitations || []).length) {
     const limits = document.createElement("div");
@@ -388,10 +457,11 @@ function addAnswer(answer) {
       p.textContent = item;
       limits.appendChild(p);
     }
-    node.appendChild(limits);
+    body.appendChild(limits);
   }
   $("messages").appendChild(node);
-  node.scrollIntoView({ block: "end" });
+  syncEmpty();
+  scrollThread(false);
   renderEvidence(answer);
   if (answer.credits) {
     state.user.credits = answer.credits;
@@ -430,9 +500,22 @@ function renderEvidence(answer) {
     const badge = card.querySelector(".badge");
     badge.textContent = t(citation.statement_class) || citation.statement_label || citation.statement_class;
     badge.classList.add(citation.statement_class);
-    const rev = citation.revision ? `${t("revisionWord")} ${citation.revision}` : "";
-    const edition = citation.edition ? `${t("edition")} ${citation.edition}` : "";
-    card.querySelector(".meta").textContent = `${citation.source_file} · ${t("clause")} ${citation.clause || citation.section || "—"} · ${t("page")} ${citation.page || "—"} · ${rev} ${edition} · ${citation.store}`;
+    const chips = document.createElement("div");
+    chips.className = "chips";
+    const bits = [
+      citation.source_file,
+      `${t("clause")} ${citation.clause || citation.section || "—"}`,
+      `${t("page")} ${citation.page || "—"}`,
+      citation.revision ? `${t("revisionWord")} ${citation.revision}` : "",
+      citation.edition ? `${t("edition")} ${citation.edition}` : "",
+    ].filter(Boolean);
+    for (const bit of bits) {
+      const chip = document.createElement("span");
+      chip.className = "mono";
+      chip.textContent = bit;
+      chips.appendChild(chip);
+    }
+    card.querySelector(".meta").replaceWith(chips);
     card.querySelector(".excerpt").textContent = citation.excerpt;
     if (citation.corpus_label) {
       const note = document.createElement("p");
@@ -528,6 +611,7 @@ $("project").addEventListener("change", () => {
   closeMention();
   sessionStorage.setItem("eai_project", state.projectId);
   $("messages").innerHTML = "";
+  syncEmpty();
   $("evidence-body").innerHTML = `<p class="empty">${t("nextEvidence")}</p>`;
   api("/api/kb/documents").then((kb) => renderDocs(kb.documents));
 });
@@ -541,6 +625,7 @@ async function submitUpload(event, errorName, extra) {
   }
   const form = new FormData(event.target);
   for (const [key, value] of Object.entries(extra || {})) form.set(key, value);
+  event.target.classList.add("uploading");
   try {
     await api(`/api/projects/${state.projectId}/documents`, { method: "POST", body: form });
     event.target.reset();
@@ -548,13 +633,23 @@ async function submitUpload(event, errorName, extra) {
     await renderDocs(kb.documents);
   } catch (error) {
     setError(errorName, error.message);
+  } finally {
+    event.target.classList.remove("uploading");
   }
 }
 
 $("upload-form").addEventListener("submit", (event) => submitUpload(event, "upload"));
 $("standard-form").addEventListener("submit", (event) => submitUpload(event, "standard", { doc_type: "standard" }));
 
+function growQuestion() {
+  const box = $("question");
+  box.style.height = "auto";
+  const max = 24 * 6 + 22;
+  box.style.height = `${Math.min(box.scrollHeight, max)}px`;
+}
+
 $("question").addEventListener("input", () => {
+  growQuestion();
   const found = activeMention();
   if (!found) {
     closeMention();
@@ -566,6 +661,11 @@ $("question").addEventListener("input", () => {
 
 $("question").addEventListener("keydown", (event) => {
   const menu = $("mention-menu");
+  if (event.key === "Enter" && !event.shiftKey && (menu.hidden || !state.mentionItems.length)) {
+    event.preventDefault();
+    $("composer").requestSubmit();
+    return;
+  }
   if (menu.hidden) return;
   if (event.key === "Escape") {
     event.preventDefault();
@@ -581,7 +681,7 @@ $("question").addEventListener("keydown", (event) => {
     renderMentionMenu(state.mentionItems);
     return;
   }
-  if (event.key === "Enter" || event.key === "Tab") {
+  if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
     const doc = state.mentionItems[state.mentionIndex];
     if (!doc) return;
     event.preventDefault();
@@ -597,6 +697,7 @@ $("composer").addEventListener("submit", async (event) => {
   const mode = document.querySelector('input[name="mode"]:checked').value;
   addUserBubble(message);
   $("send").disabled = true;
+  $("typing").hidden = false;
   try {
     const answer = await api("/api/chat", {
       method: "POST",
@@ -611,9 +712,11 @@ $("composer").addEventListener("submit", async (event) => {
     state.conversationId = answer.conversation_id;
     addAnswer(answer);
     $("question").value = "";
+    $("question").style.height = "auto";
   } catch (error) {
     setError("chat", error.message);
   } finally {
+    $("typing").hidden = true;
     $("send").disabled = false;
   }
 });
@@ -729,5 +832,58 @@ window.onUiLang = () => {
   });
   if (state.lastAnswer) renderEvidence(state.lastAnswer);
 };
+
+document.querySelectorAll("[data-auth-tab]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const tab = button.dataset.authTab;
+    $("login-form").hidden = tab !== "login";
+    $("register-form").hidden = tab !== "register";
+    document.querySelectorAll("[data-auth-tab]").forEach((item) => item.classList.toggle("active", item === button));
+  });
+});
+
+document.querySelectorAll("[data-theme-set]").forEach((button) => {
+  const sync = () => button.setAttribute("aria-pressed", document.documentElement.dataset.theme === "light" ? "true" : "false");
+  sync();
+  button.addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem("eai_theme", next);
+    document.querySelectorAll("[data-theme-set]").forEach((item) => item.setAttribute("aria-pressed", next === "light" ? "true" : "false"));
+  });
+});
+
+function setSheet(name, open) {
+  document.body.classList.toggle("nav-open", name === "nav" && open);
+  document.body.classList.toggle("evidence-open", name === "evidence" && open);
+  if (!open) {
+    document.body.classList.remove("nav-open", "evidence-open");
+  }
+}
+$("open-sidebar").addEventListener("click", () => setSheet("nav", true));
+$("close-sidebar").addEventListener("click", () => setSheet("nav", false));
+$("open-evidence").addEventListener("click", () => setSheet("evidence", true));
+$("close-evidence").addEventListener("click", () => setSheet("evidence", false));
+$("sheet-backdrop").addEventListener("click", () => setSheet("", false));
+$("messages").addEventListener("scroll", () => {
+  stickToBottom = nearBottom();
+  const jump = $("jump-latest");
+  if (jump) jump.hidden = stickToBottom || !threadHasMessages();
+});
+$("jump-latest").addEventListener("click", () => scrollThread(true));
+
+document.querySelectorAll("form.upload").forEach((form) => {
+  const input = form.querySelector('input[type="file"]');
+  form.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    form.classList.add("drag");
+  });
+  form.addEventListener("dragleave", () => form.classList.remove("drag"));
+  form.addEventListener("drop", (event) => {
+    event.preventDefault();
+    form.classList.remove("drag");
+    if (input && event.dataTransfer.files.length) input.files = event.dataTransfer.files;
+  });
+});
 
 boot();
