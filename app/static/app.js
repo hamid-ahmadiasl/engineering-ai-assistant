@@ -66,12 +66,14 @@ function showApp() {
   $("auth").hidden = true;
   $("shell").hidden = false;
   $("admin").hidden = true;
+  window.scrollTo(0, 0);
 }
 
 function showAdmin() {
   $("auth").hidden = true;
   $("shell").hidden = true;
   $("admin").hidden = false;
+  window.scrollTo(0, 0);
 }
 
 function signedIn(token, user) {
@@ -80,6 +82,7 @@ function signedIn(token, user) {
   sessionStorage.setItem("eai_token", token);
   renderUser();
   showApp();
+  window.scrollTo(0, 0);
   refreshLibrary();
 }
 
