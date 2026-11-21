@@ -134,7 +134,13 @@ def reciprocal_rank_fusion(rankings: list[list[Chunk]], k: int = 8, rrf_k: int =
     return [chosen[cid] for cid in ordered[:k]]
 
 
-def retrieve(db: Session, query: str, project_id: str | None, k: int = 8) -> list[Chunk]:
+def retrieve(
+    db: Session,
+    query: str,
+    project_id: str | None,
+    k: int = 8,
+    document_ids: list[str] | None = None,
+) -> list[Chunk]:
     rankings = [
         lexical_search(db, query, scope="global", project_id=None, k=k),
         vector_search(query, scope="global", project_id=None, k=k, db=db),
@@ -142,4 +148,19 @@ def retrieve(db: Session, query: str, project_id: str | None, k: int = 8) -> lis
     if project_id:
         rankings.insert(0, lexical_search(db, query, scope="project", project_id=project_id, k=k))
         rankings.insert(1, vector_search(query, scope="project", project_id=project_id, k=k, db=db))
-    return reciprocal_rank_fusion(rankings, k=k)
+    fused = reciprocal_rank_fusion(rankings, k=k)
+    if not document_ids:
+        return fused
+    allowed = {doc_id for doc_id in document_ids if doc_id}
+    picked = [chunk for chunk in fused if chunk.document_id in allowed]
+    have = {chunk.id for chunk in picked}
+    if len(picked) < k:
+        extra = list(db.scalars(select(Chunk).where(Chunk.document_id.in_(allowed)).limit(k * 4)))
+        for chunk in extra:
+            if chunk.id in have:
+                continue
+            picked.append(chunk)
+            have.add(chunk.id)
+            if len(picked) >= k:
+                break
+    return picked[:k]

@@ -24,6 +24,7 @@ DISCLAIMER_FA = (
 
 FA_LABELS = {
     "explicit_requirement": "الزام صریح",
+    "code_requirement": "الزام کد / استاندارد",
     "engineering_recommendation": "توصیه مهندسی",
     "ai_interpretation": "تفسیر هوش مصنوعی",
     "informative": "منبع اطلاع‌رسانی",
@@ -50,6 +51,8 @@ Rules:
 
 
 def _block_for_source(statement_class: str) -> str | None:
+    if statement_class == "code_requirement":
+        return "code_requirement"
     if statement_class == "explicit_requirement":
         return "explicit_requirement"
     if statement_class == "engineering_recommendation":
@@ -59,6 +62,9 @@ def _block_for_source(statement_class: str) -> str | None:
 
 _KIND_MAP = {
     "explicit_requirement": "explicit_requirement",
+    "code_requirement": "code_requirement",
+    "coderequirement": "code_requirement",
+    "standard": "code_requirement",
     "explicitrequirement": "explicit_requirement",
     "requirement": "explicit_requirement",
     "engineering_recommendation": "engineering_recommendation",
@@ -161,7 +167,7 @@ def _valid_blocks(data: dict, known_ids: set[str]) -> list[dict]:
         kind_raw = str(block.get("kind") or "").strip().lower().replace("-", " ").replace("_", " ")
         kind_key = kind_raw.replace(" ", "")
         kind = _KIND_MAP.get(kind_key) or _KIND_MAP.get(kind_raw.replace(" ", "_")) or "ai_interpretation"
-        if kind not in {"explicit_requirement", "engineering_recommendation", "ai_interpretation"}:
+        if kind not in {"explicit_requirement", "engineering_recommendation", "ai_interpretation", "code_requirement"}:
             kind = "ai_interpretation"
         cites: list[str] = []
         for raw_id in _cite_list(block):

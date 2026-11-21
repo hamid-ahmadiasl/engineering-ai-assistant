@@ -18,6 +18,7 @@ REQUIRED_FIELDS = (
 
 STATEMENT_LABELS = {
     "explicit_requirement": "Explicit requirement",
+    "code_requirement": "Code / standard requirement",
     "engineering_recommendation": "Engineering recommendation",
     "ai_interpretation": "AI interpretation",
     "informative": "Informative source",

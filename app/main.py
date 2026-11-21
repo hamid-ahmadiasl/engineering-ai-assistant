@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import uuid
 from contextlib import asynccontextmanager
@@ -126,6 +127,7 @@ class ChatIn(BaseModel):
     project_id: str | None = None
     mode: str | None = "auto"
     conversation_id: str | None = None
+    document_ids: list[str] | None = None
 
 
 class CodeIn(BaseModel):
@@ -340,6 +342,71 @@ def create_project(body: ProjectIn, user: User = Depends(current_user), db: Sess
     return _public_project(project)
 
 
+_YEAR = re.compile(r"(?:19|20)\d{2}")
+
+
+def _upload_meta(
+    *,
+    filename: str,
+    title: str,
+    doc_type: str,
+    revision: str,
+    edition: str,
+    standard_name: str = "",
+    part: str = "",
+) -> dict:
+    """Project files stay project documents. Codes are a separate doc_type in the same store."""
+    if (doc_type or "").strip().lower() != "standard":
+        kind = doc_type or "upload"
+        return {
+            "title": title or Path(filename).stem,
+            "doc_type": kind,
+            "revision": revision,
+            "edition": edition,
+            "hierarchy_level": {"project_spec": 2, "datasheet": 3, "vendor": 5, "requisition": 2}.get(kind, 4),
+            "statement_class_default": "explicit_requirement" if kind == "project_spec" else "informative",
+        }
+    stem = Path(filename).stem.replace("_", " ").replace("-", " ")
+    name = (standard_name or title or stem).strip()
+    year = (edition or "").strip()
+    if not year:
+        found = _YEAR.search(f"{name} {stem}")
+        year = found.group(0) if found else ""
+    division = (part or "").strip()
+    return {
+        "title": name,
+        "doc_type": "standard",
+        "revision": division,
+        "edition": year,
+        "hierarchy_level": 4,
+        "statement_class_default": "code_requirement",
+        "corpus_label": "Project code or standard. The citation edition is the one loaded for this project.",
+    }
+
+
+def _mentioned_documents(db: Session, user: User, project: Project | None, document_ids: list[str] | None) -> list[str] | None:
+    """Keep only ids the caller can read. Global notes are readable; other projects are checked."""
+    if not document_ids:
+        return None
+    unique: list[str] = []
+    for raw in document_ids:
+        doc_id = (raw or "").strip()
+        if doc_id and doc_id not in unique:
+            unique.append(doc_id)
+    if not unique:
+        return None
+    docs = list(db.scalars(select(Document).where(Document.id.in_(unique))))
+    found = {doc.id: doc for doc in docs}
+    if any(doc_id not in found for doc_id in unique):
+        raise HTTPException(status_code=404, detail="A mentioned document was not found.")
+    for doc in docs:
+        if doc.scope == "global" or not doc.project_id:
+            continue
+        owner = project if project is not None and project.id == doc.project_id else get_project(db, doc.project_id)
+        assert_read(db, owner, user)
+    return unique
+
+
 def _save_upload(upload: UploadFile, dest_dir: Path) -> Path:
     suffix = Path(upload.filename or "").suffix.lower()
     if suffix not in ALLOWED_SUFFIXES:
@@ -369,6 +436,8 @@ async def upload_project_document(
     doc_type: str = Form("upload"),
     revision: str = Form(""),
     edition: str = Form(""),
+    standard_name: str = Form(""),
+    part: str = Form(""),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -385,14 +454,15 @@ async def upload_project_document(
             scope="project",
             project_id=project.id,
             uploaded_by=user.id,
-            meta={
-                "title": title or path.stem,
-                "doc_type": doc_type or "upload",
-                "revision": revision,
-                "edition": edition,
-                "hierarchy_level": {"project_spec": 2, "datasheet": 3, "vendor": 5, "requisition": 2}.get(doc_type, 4),
-                "statement_class_default": "explicit_requirement" if doc_type == "project_spec" else "informative",
-            },
+            meta=_upload_meta(
+                filename=path.name,
+                title=title,
+                doc_type=doc_type,
+                revision=revision,
+                edition=edition,
+                standard_name=standard_name,
+                part=part,
+            ),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -465,7 +535,14 @@ def chat(body: ChatIn, request: Request, user: User = Depends(current_user), db:
     elif user.is_anonymous:
         project = db.scalar(select(Project).where(Project.code == "HX-2201"))
     charge_or_http(db, user, settings.credit_cost_per_query, "chat", body.message[:240])
-    result = run_query(db, project=project, message=body.message.strip(), mode=body.mode)
+    mentioned = _mentioned_documents(db, user, project, body.document_ids)
+    result = run_query(
+        db,
+        project=project,
+        message=body.message.strip(),
+        mode=body.mode,
+        document_ids=mentioned,
+    )
     conversation = None
     if body.conversation_id:
         conversation = db.get(Conversation, body.conversation_id)

@@ -26,6 +26,7 @@ FA = {
     "Upload a PDF, Excel workbook, text file, or image.": "یک PDF، پرونده اکسل، متن، یا تصویر بارگذاری کنید.",
     "Project not found.": "پروژه پیدا نشد.",
     "Document not found.": "سند پیدا نشد.",
+    "A mentioned document was not found.": "یکی از سندهای اشاره‌شده پیدا نشد.",
     "Conversation not found.": "گفتگو پیدا نشد.",
     "You do not have access to that project.": "به این پروژه دسترسی ندارید.",
     "The trial can read the demo project. Uploads and edits need a signed-in account.": "آزمایش فقط می‌تواند پروژه نمایشی را بخواند. بارگذاری به حساب کاربری نیاز دارد.",

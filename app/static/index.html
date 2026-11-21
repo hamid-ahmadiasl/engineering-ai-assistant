@@ -70,6 +70,23 @@
       <aside class="library">
         <section>
           <header>
+            <h2 data-i18n="codesStandards">Codes &amp; Standards</h2>
+          </header>
+          <p class="hint" data-i18n="codesHint">Licensed codes for this project only, such as ASME VIII or TEMA. They stay out of the global notes.</p>
+          <ul id="standard-docs" class="doc-list"></ul>
+          <form id="standard-form" class="upload">
+            <input name="file" type="file" accept=".pdf,.xlsx,.xlsm,.txt,.md,.csv,.png,.jpg,.jpeg,.tif,.tiff" />
+            <label><span data-i18n="standardName">Standard name</span> <input name="standard_name" type="text" maxlength="200" data-i18n-placeholder="standardNamePlaceholder" placeholder="ASME VIII" /></label>
+            <div class="upload-fields">
+              <label><span data-i18n="editionYear">Edition / year</span> <input name="edition" type="text" maxlength="40" placeholder="2023" /></label>
+              <label><span data-i18n="partDivision">Part / division</span> <input name="part" type="text" maxlength="40" data-i18n-placeholder="partPlaceholder" placeholder="Div. 1" /></label>
+            </div>
+            <button class="primary" type="submit" data-i18n="addStandard">Add code or standard</button>
+            <p class="form-error" data-for="standard"></p>
+          </form>
+        </section>
+        <section>
+          <header>
             <h2 data-i18n="projectDocs">Project documents</h2>
           </header>
           <ul id="project-docs" class="doc-list"></ul>
@@ -110,9 +127,13 @@
             <label><input type="radio" name="mode" value="troubleshoot" /> <span data-i18n="troubleshoot">Troubleshoot</span></label>
           </div>
           <div class="prompts" id="prompts"></div>
-          <div class="ask-row">
-            <textarea id="question" rows="3" data-i18n-placeholder="questionPlaceholder" placeholder="Ask about a requirement, a conflict, or a plant problem…" required></textarea>
-            <button class="primary" type="submit" id="send" data-i18n="send">Ask</button>
+          <div class="mention-wrap">
+            <div id="mention-chips" class="mention-chips"></div>
+            <div id="mention-menu" class="mention-menu" hidden role="listbox"></div>
+            <div class="ask-row">
+              <textarea id="question" rows="3" data-i18n-placeholder="questionPlaceholder" placeholder="Ask about a requirement, a conflict, or a plant problem…" required></textarea>
+              <button class="primary" type="submit" id="send" data-i18n="send">Ask</button>
+            </div>
           </div>
           <p class="form-error" data-for="chat"></p>
         </form>

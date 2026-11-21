@@ -10,6 +10,8 @@ The shipped corpus is original demo text. It is not ASME, API, TEMA, ASTM, ISO, 
 
 - Ask a general question against the global knowledge notes.
 - Open a project, upload PDF or Excel, and ask against that project plus the global notes.
+- Keep licensed codes for that project under **Codes & Standards** (کدها و استانداردها), separate from **Project documents** (مدارک پروژه). Citations show the edition.
+- Type `@` in the composer, or use **Mention**, to limit an answer to selected files.
 - Read every answer as labeled blocks: explicit requirement, engineering recommendation, or AI interpretation, each with citations (document, clause, page, revision or edition, excerpt).
 - Compare a specification, a datasheet, and a vendor offer. Conflicts follow the project document hierarchy. A higher or lower number does not win by being more restrictive.
 - Describe a plant problem and get considerations, limits, and the project constraints that bound them.

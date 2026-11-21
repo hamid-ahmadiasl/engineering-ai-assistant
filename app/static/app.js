@@ -5,6 +5,10 @@ const state = {
   projectId: sessionStorage.getItem("eai_project") || "",
   conversationId: null,
   lastAnswer: null,
+  library: [],
+  mentions: [],
+  mentionItems: [],
+  mentionIndex: 0,
 };
 
 const PROMPTS = {
@@ -94,8 +98,9 @@ function renderUser() {
   $("who").textContent = label;
   $("credits").textContent = t("credits", { n: credits.balance ?? "—", plan: user.plan });
   $("open-admin").hidden = user.role !== "admin";
-  const upload = $("upload-form");
-  upload.hidden = user.is_anonymous || user.plan === "trial";
+  const locked = user.is_anonymous || user.plan === "trial";
+  $("upload-form").hidden = locked;
+  $("standard-form").hidden = locked;
 }
 
 async function refreshLibrary() {
@@ -125,29 +130,171 @@ async function refreshLibrary() {
 async function renderDocs(kbDocuments) {
   const kb = $("kb-docs");
   kb.innerHTML = "";
-  for (const doc of kbDocuments) kb.appendChild(docItem(doc));
+  const globalDocs = kbDocuments.map((doc) => ({ ...doc, scope: doc.scope || "global" }));
+  for (const doc of globalDocs) kb.appendChild(docItem(doc, false));
+  const standards = $("standard-docs");
   const list = $("project-docs");
+  standards.innerHTML = "";
   list.innerHTML = "";
   if (!state.projectId) {
+    standards.innerHTML = `<li><span>${t("selectProject")}</span></li>`;
     list.innerHTML = `<li><span>${t("selectProject")}</span></li>`;
+    state.library = globalDocs;
     return;
   }
   const data = await api(`/api/projects/${state.projectId}/documents`);
-  if (!data.documents.length) {
-    list.innerHTML = `<li><span>${t("noProjectFiles")}</span></li>`;
-    return;
-  }
-  for (const doc of data.documents) list.appendChild(docItem(doc));
+  const projectDocs = data.documents.filter((doc) => doc.doc_type !== "standard");
+  const standardDocs = data.documents.filter((doc) => doc.doc_type === "standard");
+  state.library = [...standardDocs, ...projectDocs, ...globalDocs];
+  if (!standardDocs.length) standards.innerHTML = `<li><span>${t("noStandards")}</span></li>`;
+  for (const doc of standardDocs) standards.appendChild(docItem(doc, true));
+  if (!projectDocs.length) list.innerHTML = `<li><span>${t("noProjectFiles")}</span></li>`;
+  for (const doc of projectDocs) list.appendChild(docItem(doc, true));
 }
 
-function docItem(doc) {
+function docItem(doc, canDelete) {
   const li = document.createElement("li");
-  const rev = doc.revision ? `Rev ${doc.revision}` : "No revision";
-  const edition = doc.edition ? ` · ${doc.edition}` : "";
-  li.innerHTML = `<strong></strong><span></span>`;
-  li.querySelector("strong").textContent = doc.title;
-  li.querySelector("span").textContent = `${doc.doc_type} · ${rev}${edition} · ${doc.filename}`;
+  const strong = document.createElement("strong");
+  strong.textContent = doc.title;
+  const meta = document.createElement("span");
+  const edition = doc.edition ? `${t("edition")} ${doc.edition}` : "";
+  const rev = doc.doc_type === "standard"
+    ? (doc.revision ? `${t("partDivision")} ${doc.revision}` : "")
+    : (doc.revision ? `${t("revisionWord")} ${doc.revision}` : "");
+  meta.textContent = [doc.doc_type, edition, rev, doc.filename].filter(Boolean).join(" · ");
+  const actions = document.createElement("div");
+  actions.className = "doc-actions";
+  const mention = document.createElement("button");
+  mention.type = "button";
+  mention.className = "ghost small";
+  mention.textContent = t("mention");
+  mention.addEventListener("click", () => insertMention(doc));
+  actions.appendChild(mention);
+  if (canDelete) {
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "ghost small";
+    remove.textContent = t("deleteDoc");
+    remove.addEventListener("click", () => deleteDocument(doc));
+    actions.appendChild(remove);
+  }
+  li.append(strong, meta, actions);
   return li;
+}
+
+function mentionToken(doc) {
+  const source = `${doc.title || ""} ${doc.edition || ""}`.trim();
+  const latin = source.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const base = latin.length >= 3 ? latin : (doc.title || doc.filename || "file").replace(/\s+/g, "-");
+  return base.slice(0, 48);
+}
+
+function foldMatch(value) {
+  return (value || "")
+    .replace(/[يى]/g, "ی")
+    .replace(/ك/g, "ک")
+    .replace(/\u200c/g, " ")
+    .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
+    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
+    .toLowerCase();
+}
+
+function activeMention() {
+  const box = $("question");
+  const pos = box.selectionStart;
+  const before = box.value.slice(0, pos);
+  const at = before.lastIndexOf("@");
+  if (at < 0) return null;
+  if (at > 0 && !/\s/.test(before[at - 1])) return null;
+  const query = before.slice(at + 1);
+  if (query.includes("\n") || query.length > 60) return null;
+  return { at, query, pos };
+}
+
+function closeMention() {
+  $("mention-menu").hidden = true;
+  state.mentionItems = [];
+  state.mentionIndex = 0;
+}
+
+function renderMentionMenu(items) {
+  const menu = $("mention-menu");
+  menu.innerHTML = "";
+  state.mentionItems = items;
+  if (!items.length) {
+    menu.hidden = true;
+    return;
+  }
+  state.mentionIndex = Math.min(state.mentionIndex, items.length - 1);
+  items.forEach((doc, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.setAttribute("role", "option");
+    button.setAttribute("aria-selected", index === state.mentionIndex ? "true" : "false");
+    const edition = doc.edition ? ` · ${doc.edition}` : "";
+    button.textContent = `${doc.title}${edition} — ${doc.filename}`;
+    button.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      insertMention(doc);
+    });
+    menu.appendChild(button);
+  });
+  menu.hidden = false;
+}
+
+function filterMentions(query) {
+  const needle = foldMatch(query.trim());
+  return state.library.filter((doc) => {
+    const haystack = foldMatch(`${doc.title} ${doc.filename} ${doc.edition} ${doc.revision}`);
+    return !needle || haystack.includes(needle);
+  }).slice(0, 8);
+}
+
+function insertMention(doc) {
+  const token = mentionToken(doc);
+  if (!state.mentions.some((item) => item.id === doc.id)) {
+    state.mentions.push({ id: doc.id, token, title: doc.title });
+  }
+  const box = $("question");
+  const found = activeMention();
+  if (found) {
+    box.value = `${box.value.slice(0, found.at)}@${token} ${box.value.slice(found.pos)}`;
+  } else if (!box.value.includes(`@${token}`)) {
+    const gap = box.value && !/\s$/.test(box.value) ? " " : "";
+    box.value = `${box.value}${gap}@${token} `;
+  }
+  closeMention();
+  renderChips();
+  box.focus();
+}
+
+function renderChips() {
+  const host = $("mention-chips");
+  host.innerHTML = "";
+  for (const item of state.mentions) {
+    const chip = document.createElement("span");
+    chip.className = "mention-chip";
+    chip.textContent = `@${item.token}`;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.setAttribute("aria-label", t("removeMention"));
+    remove.textContent = "×";
+    remove.addEventListener("click", () => {
+      state.mentions = state.mentions.filter((row) => row.id !== item.id);
+      renderChips();
+    });
+    chip.appendChild(remove);
+    host.appendChild(chip);
+  }
+}
+
+async function deleteDocument(doc) {
+  if (!state.projectId || !window.confirm(t("confirmDelete"))) return;
+  await api(`/api/projects/${state.projectId}/documents/${doc.id}`, { method: "DELETE" });
+  state.mentions = state.mentions.filter((item) => item.id !== doc.id);
+  renderChips();
+  const kb = await api("/api/kb/documents");
+  await renderDocs(kb.documents);
 }
 
 function renderPrompts() {
@@ -340,27 +487,69 @@ $("logout").addEventListener("click", () => {
 $("project").addEventListener("change", () => {
   state.projectId = $("project").value;
   state.conversationId = null;
+  state.mentions = [];
+  renderChips();
+  closeMention();
   sessionStorage.setItem("eai_project", state.projectId);
   $("messages").innerHTML = "";
   $("evidence-body").innerHTML = `<p class="empty">${t("nextEvidence")}</p>`;
   api("/api/kb/documents").then((kb) => renderDocs(kb.documents));
 });
 
-$("upload-form").addEventListener("submit", async (event) => {
+async function submitUpload(event, errorName, extra) {
   event.preventDefault();
-  setError("upload", "");
+  setError(errorName, "");
   if (!state.projectId) {
-    setError("upload", t("uploadNeedProject"));
+    setError(errorName, t("uploadNeedProject"));
     return;
   }
   const form = new FormData(event.target);
+  for (const [key, value] of Object.entries(extra || {})) form.set(key, value);
   try {
     await api(`/api/projects/${state.projectId}/documents`, { method: "POST", body: form });
     event.target.reset();
     const kb = await api("/api/kb/documents");
     await renderDocs(kb.documents);
   } catch (error) {
-    setError("upload", error.message);
+    setError(errorName, error.message);
+  }
+}
+
+$("upload-form").addEventListener("submit", (event) => submitUpload(event, "upload"));
+$("standard-form").addEventListener("submit", (event) => submitUpload(event, "standard", { doc_type: "standard" }));
+
+$("question").addEventListener("input", () => {
+  const found = activeMention();
+  if (!found) {
+    closeMention();
+    return;
+  }
+  state.mentionIndex = 0;
+  renderMentionMenu(filterMentions(found.query));
+});
+
+$("question").addEventListener("keydown", (event) => {
+  const menu = $("mention-menu");
+  if (menu.hidden) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeMention();
+    return;
+  }
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    const step = event.key === "ArrowDown" ? 1 : -1;
+    const count = state.mentionItems.length;
+    if (!count) return;
+    state.mentionIndex = (state.mentionIndex + step + count) % count;
+    renderMentionMenu(state.mentionItems);
+    return;
+  }
+  if (event.key === "Enter" || event.key === "Tab") {
+    const doc = state.mentionItems[state.mentionIndex];
+    if (!doc) return;
+    event.preventDefault();
+    insertMention(doc);
   }
 });
 
@@ -380,6 +569,7 @@ $("composer").addEventListener("submit", async (event) => {
         mode,
         project_id: state.projectId || null,
         conversation_id: state.conversationId,
+        document_ids: state.mentions.map((item) => item.id),
       },
     });
     state.conversationId = answer.conversation_id;

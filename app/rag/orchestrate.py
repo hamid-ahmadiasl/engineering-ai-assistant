@@ -51,17 +51,27 @@ def _chunks_for_clauses(db: Session, project_id: str, pairs: list[tuple[str, str
     return found
 
 
-def run_query(db: Session, *, project: Project | None, message: str, mode: str | None) -> dict:
+def run_query(
+    db: Session,
+    *,
+    project: Project | None,
+    message: str,
+    mode: str | None,
+    document_ids: list[str] | None = None,
+) -> dict:
     resolved = classify(message, mode)
     project_id = project.id if project else None
     query = retrieval_text(message)
     if resolved == "troubleshoot":
         query = query + " troubleshooting considerations limitations operating window leak gasket"
-    chunks = retrieve(db, query, project_id, k=8)
+    chunks = retrieve(db, query, project_id, k=8, document_ids=document_ids)
 
     conflicts: list[dict] = []
     if project is not None and resolved in {"compare", "qa", "troubleshoot"}:
         claims = list(db.scalars(select(Claim).where(Claim.project_id == project.id)))
+        if document_ids:
+            allowed_docs = set(document_ids)
+            claims = [claim for claim in claims if claim.document_id in allowed_docs]
         rules = ""
         if project.precedence_json:
             try:
@@ -85,6 +95,9 @@ def run_query(db: Session, *, project: Project | None, message: str, mode: str |
                 conflicts = [item.as_dict() for item in chosen]
             pairs = [(obs.document, obs.clause) for item in chosen for obs in item.observed]
             extra = _chunks_for_clauses(db, project.id, pairs)
+            if document_ids:
+                allowed_docs = set(document_ids)
+                extra = [chunk for chunk in extra if chunk.document_id in allowed_docs]
             have = {c.id for c in chunks}
             for chunk in extra:
                 if chunk.id not in have:

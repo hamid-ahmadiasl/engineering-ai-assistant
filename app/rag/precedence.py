@@ -32,19 +32,21 @@ PROCESS = {
 
 DOC_RANK_MECHANICAL = {
     "project_spec": 0,
-    "datasheet": 1,
-    "requisition": 1,
-    "vendor": 2,
-    "standard_note": 3,
-    "handbook": 4,
+    "standard": 1,
+    "datasheet": 2,
+    "requisition": 2,
+    "vendor": 3,
+    "standard_note": 4,
+    "handbook": 5,
 }
 DOC_RANK_PROCESS = {
     "datasheet": 0,
     "project_spec": 1,
-    "requisition": 1,
-    "vendor": 2,
-    "standard_note": 3,
-    "handbook": 4,
+    "standard": 2,
+    "requisition": 2,
+    "vendor": 3,
+    "standard_note": 4,
+    "handbook": 5,
 }
 
 LABELS_FA = {
@@ -235,9 +237,16 @@ def _explain(parameter: str, governing: Observed, observed: list[Observed], stat
     family = _family(parameter)
     others = [item for item in observed if item.role != "governing"]
     other_text = "; ".join(f"{item.document} rev {item.revision or '—'} states {item.value}" for item in others)
-    if family == "process":
+    label = LABELS.get(parameter, parameter)
+    if governing.doc_type == "standard":
         why = (
-            f"{governing.document} rev {governing.revision or '—'} governs {LABELS.get(parameter, parameter)} "
+            f"{governing.document} edition {governing.edition or '—'} governs {label} "
+            "as a code or standard loaded for this project. "
+            "A project specification still outranks it when both are in the comparison."
+        )
+    elif family == "process":
+        why = (
+            f"{governing.document} rev {governing.revision or '—'} governs {label} "
             "because this project's hierarchy assigns process conditions to the datasheet."
         )
     else:
