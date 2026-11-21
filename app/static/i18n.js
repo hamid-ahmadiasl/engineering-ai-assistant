@@ -1,0 +1,241 @@
+const I18N = {
+  en: {
+    title: "Engineering AI Assistant",
+    eyebrow: "Decision support · mechanical and process",
+    lede: "Ask about pressure equipment and heat exchangers. Answers stay tied to the global notes and the project file you select. A person still makes the decision.",
+    signIn: "Sign in",
+    email: "Email",
+    password: "Password",
+    createAccount: "Create an account",
+    accessCode: "Access code",
+    codePlaceholder: "Optional unless the demo requires one",
+    create: "Create account",
+    trial: "Continue with a limited trial",
+    trialHint: "The trial can question the demo exchanger only. It cannot upload files.",
+    tagline: "Evidence first. No autonomous design.",
+    project: "Project",
+    globalOnly: "Global knowledge only",
+    admin: "Admin",
+    signOut: "Sign out",
+    projectDocs: "Project documents",
+    uploadHint: "PDF or Excel. State the revision so citations can carry it.",
+    type: "Type",
+    revision: "Revision",
+    addDoc: "Add to this project",
+    spec: "Project specification",
+    datasheet: "Datasheet",
+    vendor: "Vendor document",
+    requisition: "Requisition",
+    otherFile: "Other project file",
+    globalNotes: "Global knowledge notes",
+    globalHint: "Shared across projects. The shipped notes are original demo text, not licensed codes.",
+    banner: "Decision support only. Every figure below is for a qualified engineer to check against the cited page. The assistant does not approve a design.",
+    auto: "Auto",
+    ask: "Ask",
+    compare: "Compare",
+    troubleshoot: "Troubleshoot",
+    questionPlaceholder: "Ask about a requirement, a conflict, or a plant problem…",
+    send: "Ask",
+    evidence: "Evidence",
+    evidenceEmpty: "Citations, excerpts, and conflicts for the selected answer appear here.",
+    noCitation: "No citation was returned.",
+    nextEvidence: "Citations for the next answer will land here.",
+    noProjectFiles: "No project files yet.",
+    selectProject: "Select a project to see its files. Global notes stay available.",
+    trialSession: "Trial session",
+    credits: "{n} credits · {plan}",
+    llmNote: "language model, grounded on the excerpts",
+    extractiveNote: "extractive, quoted from the excerpts",
+    explicit_requirement: "Explicit requirement",
+    engineering_recommendation: "Engineering recommendation",
+    ai_interpretation: "AI interpretation",
+    informative: "Informative source",
+    vendor_offer: "Vendor offer",
+    conflict: "Conflict",
+    deviation: "Deviation",
+    aligned: "Aligned",
+    governing: "Governing",
+    clause: "clause",
+    page: "page",
+    revisionWord: "rev",
+    edition: "edition",
+    uploadNeedProject: "Select a project before uploading.",
+    administration: "Administration",
+    adminTag: "Accounts, codes, and credits",
+    back: "Back to the assistant",
+    accessCodes: "Access codes",
+    creditsToAdd: "Credits to add",
+    planOnRedeem: "Plan on redemption",
+    leavePlan: "Leave the current plan",
+    uses: "Uses",
+    expires: "Expires in days",
+    never: "Never",
+    note: "Note",
+    generate: "Generate code",
+    accounts: "Accounts",
+    usage: "Usage",
+    stripeHint: "Stripe checkout stays off until STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_PRICE_PRO are set.",
+    stripeOn: "Stripe checkout is enabled.",
+    stripeOff: "Stripe checkout is disabled.",
+    topUp: "Top up",
+    resetMonth: "Reset month",
+    revoke: "Revoke",
+    noUsage: "No usage yet.",
+    requestFailed: "Request failed",
+  },
+  fa: {
+    title: "دستیار هوش مصنوعی مهندسی",
+    eyebrow: "پشتیبان تصمیم · مکانیک و فرایند",
+    lede: "درباره تجهیزات تحت فشار و مبدل‌های حرارتی بپرسید. پاسخ به یادداشت‌های کلی و پرونده پروژه‌ای که انتخاب می‌کنید وصل می‌ماند. تصمیم هنوز با انسان است.",
+    signIn: "ورود",
+    email: "ایمیل",
+    password: "گذرواژه",
+    createAccount: "ساخت حساب",
+    accessCode: "کد دسترسی",
+    codePlaceholder: "اختیاری، مگر اینکه نسخه نمایشی کد بخواهد",
+    create: "ساخت حساب",
+    trial: "ادامه با آزمایش محدود",
+    trialHint: "آزمایش فقط می‌تواند درباره مبدل نمایشی بپرسد و نمی‌تواند پرونده بارگذاری کند.",
+    tagline: "اول شواهد. بدون طراحی خودکار.",
+    project: "پروژه",
+    globalOnly: "فقط دانش کلی",
+    admin: "مدیریت",
+    signOut: "خروج",
+    projectDocs: "اسناد پروژه",
+    uploadHint: "PDF یا اکسل. ویرایش را بنویسید تا در ارجاع بیاید.",
+    type: "نوع",
+    revision: "ویرایش",
+    addDoc: "افزودن به این پروژه",
+    spec: "مشخصات پروژه",
+    datasheet: "دیتاشیت",
+    vendor: "سند فروشنده",
+    requisition: "درخواست خرید",
+    otherFile: "سایر پرونده‌های پروژه",
+    globalNotes: "یادداشت‌های دانش کلی",
+    globalHint: "بین پروژه‌ها مشترک است. متن همراه برنامه یادداشت نمایشی است، نه استاندارد دارای مجوز.",
+    banner: "فقط پشتیبان تصمیم. هر عدد را مهندس واجد شرایط با صفحه استنادشده چک می‌کند. دستیار طرح را تأیید نمی‌کند.",
+    auto: "خودکار",
+    ask: "پرسش",
+    compare: "مقایسه",
+    troubleshoot: "عیب‌یابی",
+    questionPlaceholder: "درباره یک الزام، یک تعارض، یا یک مشکل واحد بپرسید…",
+    send: "بپرس",
+    evidence: "شواهد",
+    evidenceEmpty: "ارجاع‌ها، گزیده‌ها و تعارض‌های پاسخ انتخاب‌شده اینجا می‌آیند.",
+    noCitation: "ارجاعی برنگشت.",
+    nextEvidence: "ارجاع پاسخ بعدی اینجا می‌آید.",
+    noProjectFiles: "هنوز پرونده پروژه‌ای نیست.",
+    selectProject: "برای دیدن پرونده‌ها یک پروژه انتخاب کنید. یادداشت‌های کلی در دسترس می‌مانند.",
+    trialSession: "نشست آزمایشی",
+    credits: "{n} اعتبار · {plan}",
+    llmNote: "مدل زبانی، بر پایه گزیده‌ها",
+    extractiveNote: "نقل مستقیم از گزیده‌ها",
+    explicit_requirement: "الزام صریح",
+    engineering_recommendation: "توصیه مهندسی",
+    ai_interpretation: "تفسیر هوش مصنوعی",
+    informative: "منبع اطلاع‌رسانی",
+    vendor_offer: "پیشنهاد فروشنده",
+    conflict: "تعارض",
+    deviation: "انحراف",
+    aligned: "هم‌خوان",
+    governing: "حاکم",
+    clause: "بند",
+    page: "صفحه",
+    revisionWord: "ویرایش",
+    edition: "نسخه",
+    uploadNeedProject: "پیش از بارگذاری یک پروژه را انتخاب کنید.",
+    administration: "مدیریت",
+    adminTag: "حساب‌ها، کدها و اعتبار",
+    back: "بازگشت به دستیار",
+    accessCodes: "کدهای دسترسی",
+    creditsToAdd: "اعتبار افزودنی",
+    planOnRedeem: "طرح پس از استفاده از کد",
+    leavePlan: "طرح فعلی بماند",
+    uses: "تعداد استفاده",
+    expires: "انقضا به روز",
+    never: "هرگز",
+    note: "یادداشت",
+    generate: "ساخت کد",
+    accounts: "حساب‌ها",
+    usage: "مصرف",
+    stripeHint: "پرداخت Stripe تا وقتی STRIPE_SECRET_KEY و STRIPE_WEBHOOK_SECRET و STRIPE_PRICE_PRO تنظیم نشده باشند خاموش است.",
+    stripeOn: "پرداخت Stripe فعال است.",
+    stripeOff: "پرداخت Stripe خاموش است.",
+    topUp: "افزایش اعتبار",
+    resetMonth: "شروع ماه تازه",
+    revoke: "ابطال",
+    noUsage: "هنوز مصرفی نیست.",
+    requestFailed: "درخواست انجام نشد",
+  },
+};
+
+const ERRORS_FA = {
+  "Sign in to continue.": "برای ادامه وارد شوید.",
+  "Email or password is not valid.": "ایمیل یا گذرواژه درست نیست.",
+  "Enter a valid email address.": "یک نشانی ایمیل معتبر وارد کنید.",
+  "Use a password of at least 8 characters.": "گذرواژه باید حداقل ۸ نویسه باشد.",
+  "An account with that email already exists.": "حسابی با این ایمیل وجود دارد.",
+  "Registration on the public demo requires an access code. Use the limited trial, or ask an administrator for a code.": "ثبت‌نام در نسخه نمایشی به کد دسترسی نیاز دارد.",
+  "The anonymous trial is turned off.": "آزمایش ناشناس خاموش است.",
+  "You do not have access to that project.": "به این پروژه دسترسی ندارید.",
+  "Uploads are turned off for the anonymous trial. Sign in with an account that has project access.": "بارگذاری برای آزمایش ناشناس خاموش است.",
+  "The trial can read the demo project. Uploads and edits need a signed-in account.": "آزمایش فقط پروژه نمایشی را می‌خواند.",
+  "Select a project before uploading.": "پیش از بارگذاری یک پروژه را انتخاب کنید.",
+  "Request failed": "درخواست انجام نشد",
+};
+
+let currentLang = localStorage.getItem("eai_lang") || "en";
+
+function t(key, vars) {
+  const table = I18N[currentLang] || I18N.en;
+  let text = table[key] || I18N.en[key] || key;
+  if (vars) {
+    for (const [name, value] of Object.entries(vars)) {
+      text = text.replaceAll(`{${name}}`, value);
+    }
+  }
+  return text;
+}
+
+function translateError(message) {
+  if (!message) return t("requestFailed");
+  if (currentLang !== "fa") return message;
+  if (ERRORS_FA[message]) return ERRORS_FA[message];
+  if (message.startsWith("Monthly credits") || message.includes("used up") || message.includes("اعتبار")) return message;
+  return message;
+}
+
+function hasPersian(text) {
+  return /[\u0600-\u06FF]/.test(text || "");
+}
+
+function applyI18n() {
+  document.documentElement.lang = currentLang === "fa" ? "fa" : "en";
+  document.documentElement.dir = currentLang === "fa" ? "rtl" : "ltr";
+  document.title = t("title");
+  document.querySelectorAll("[data-i18n]").forEach((node) => {
+    node.textContent = t(node.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => {
+    node.placeholder = t(node.dataset.i18nPlaceholder);
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach((node) => {
+    node.title = t(node.dataset.i18nTitle);
+  });
+  document.querySelectorAll(".lang-switch button").forEach((button) => {
+    button.classList.toggle("active", button.dataset.lang === currentLang);
+  });
+}
+
+function setUiLang(lang) {
+  currentLang = lang === "fa" ? "fa" : "en";
+  localStorage.setItem("eai_lang", currentLang);
+  applyI18n();
+  if (typeof window.onUiLang === "function") window.onUiLang();
+}
+
+document.querySelectorAll(".lang-switch button").forEach((button) => {
+  button.addEventListener("click", () => setUiLang(button.dataset.lang));
+});
+
+applyI18n();

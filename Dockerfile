@@ -8,7 +8,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PORT=7860 \
     DEMO_MODE=true \
     EMBEDDING_PROVIDER=fastembed \
-    EMBEDDING_MODEL=BAAI/bge-small-en-v1.5 \
+    EMBEDDING_MODEL=intfloat/multilingual-e5-small \
+    QUERY_TRANSLATION=both \
     FASTEMBED_CACHE_PATH=/app/models \
     LLM_PRESET=groq \
     LLM_PROVIDER=auto \
@@ -23,7 +24,7 @@ RUN apt-get update \
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
-    && python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5', cache_dir='/app/models')"
+    && python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='intfloat/multilingual-e5-small', cache_dir='/app/models')"
 
 COPY app ./app
 COPY eval ./eval

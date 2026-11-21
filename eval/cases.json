@@ -75,5 +75,30 @@
     "mode": "qa",
     "forbid_excerpt": "PROJECT-B-SENTINEL-7741",
     "forbid_document": "SP-B"
+  },
+  {
+    "id": "rq4-fa-shell-design-pressure",
+    "question": "فشار طراحی سمت پوسته برای HX-2201 چقدر است و کدام سند حاکم است؟",
+    "project": "HX-2201",
+    "mode": "qa",
+    "expect_document": "SP-2201",
+    "expect_clause": "4.2",
+    "expect_revision": "C",
+    "expect_excerpt": "18 barg",
+    "expect_language": "fa",
+    "forbid_excerpt": "PROJECT-B-SENTINEL-7741"
+  },
+  {
+    "id": "rq4-fa-corrosion",
+    "question": "اضافه ضخامت خوردگی را بین مشخصات، دیتاشیت و پیشنهاد فروشنده مقایسه کن.",
+    "project": "HX-2201",
+    "mode": "compare",
+    "expect_document": "SP-2201",
+    "expect_clause": "4.4",
+    "expect_revision": "C",
+    "expect_excerpt": "3.0 mm",
+    "expect_conflict_parameter": "corrosion_allowance_tube",
+    "expect_governing": "3.0 mm",
+    "expect_language": "fa"
   }
 ]

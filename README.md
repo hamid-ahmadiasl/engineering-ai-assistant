@@ -15,6 +15,10 @@ The shipped corpus is original demo text. It is not ASME, API, TEMA, ASTM, ISO, 
 
 Vendor document review as a separate workflow is out of scope for this prototype.
 
+Questions can be asked in Persian, or in a mix of Persian and Latin terms such as ASME, TEMA, and barg. The answer is written in the language of the question. Document titles, clause numbers, revisions, units, and numeric values stay as they appear in the source. Requirement, recommendation, and interpretation labels switch with the interface language. The chat UI has an English / فارسی control and lays out right to left when Persian is selected. The project page has the same split: `docs/index.html` and `docs/fa/index.html`.
+
+Retrieval still runs on the English corpus. A Persian question is expanded with a fixed engineering glossary and, when `QUERY_TRANSLATION=both` and a model key is set, with an English rewrite from the model. The default embedding model is `intfloat/multilingual-e5-small`, so the vector index can also place Persian next to English. Uploaded Persian text is normalized before indexing: Arabic yeh and kaf fold to the Persian letters, ZWNJ becomes a space, and Persian or Arabic digits become Western digits.
+
 ## Run it locally
 
 Python 3.12.

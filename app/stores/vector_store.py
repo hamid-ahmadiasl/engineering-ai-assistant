@@ -25,7 +25,7 @@ class AppEmbedding(EmbeddingFunction[Documents]):
         pass
 
     def __call__(self, input: Documents) -> Embeddings:
-        return embed_texts(list(input))
+        return embed_texts(list(input), kind="passage")
 
     @staticmethod
     def name() -> str:
@@ -86,7 +86,7 @@ class VectorStore:
         count = col.count()
         if count == 0:
             return []
-        embedding = embed_texts([text])[0]
+        embedding = embed_texts([text], kind="query")[0]
         result = col.query(query_embeddings=[embedding], n_results=min(k, count))
         hits = []
         ids = result.get("ids", [[]])[0]

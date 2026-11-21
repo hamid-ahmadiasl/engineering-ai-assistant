@@ -51,7 +51,12 @@ def ingest_path(
     if suffix not in ALLOWED_SUFFIXES:
         raise ValueError(f"Unsupported file type '{suffix}'.")
 
+    from app.textnorm import normalize_persian
+
     pages, warning = extract_file(path)
+    for page in pages:
+        page.text = normalize_persian(page.text)
+        page.tables = [normalize_persian(table) for table in page.tables]
     per_row = suffix in {".xlsx", ".xlsm", ".csv"} or merged.get("chunk_mode") == "row"
     sections = chunk_pages(pages, merged, per_row=per_row)
 

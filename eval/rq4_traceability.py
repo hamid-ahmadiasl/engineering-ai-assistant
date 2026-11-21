@@ -118,6 +118,14 @@ def _score(case: dict, result: dict) -> tuple[bool, list[str]]:
         fail(f"forbidden text appeared in an excerpt: {case['forbid_excerpt']}")
     if case.get("forbid_document") and case["forbid_document"] in documents:
         fail(f"forbidden document cited: {case['forbid_document']}")
+    if case.get("expect_language") == "fa":
+        prose = _blocks(result)
+        if not any("\u0600" <= ch <= "\u06ff" for ch in prose):
+            fail("answer text has no Persian letters")
+        else:
+            notes.append(f"answer language {result.get('answer_language')}")
+        if case.get("expect_excerpt") and case["expect_excerpt"] not in excerpts:
+            fail(f"Persian answer lost the source value {case['expect_excerpt']!r}")
     if case.get("expect_excerpt") and not case.get("expect_document") and case["expect_excerpt"] not in excerpts:
         # Troubleshooting may mention MDMT in the specification citation or the note.
         if case["expect_excerpt"] not in excerpts and case["expect_excerpt"] not in _blocks(result):

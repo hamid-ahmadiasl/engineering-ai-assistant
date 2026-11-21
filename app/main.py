@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
+from app.locale import localize_detail
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -75,6 +76,13 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Engineering AI Assistant", version=__version__, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+@app.exception_handler(HTTPException)
+async def localized_errors(request: Request, exc: HTTPException) -> JSONResponse:
+    raw = request.headers.get("x-lang") or request.headers.get("accept-language") or ""
+    lang = "fa" if raw.lower().startswith("fa") else "en"
+    return JSONResponse(status_code=exc.status_code, content={"detail": localize_detail(exc.detail, lang)})
 
 
 def db_session(db: Session = Depends(get_db)) -> Session:

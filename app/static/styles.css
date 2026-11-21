@@ -1,3 +1,22 @@
+html[lang="fa"] body,
+html[lang="fa"] button,
+html[lang="fa"] input,
+html[lang="fa"] select,
+html[lang="fa"] textarea {
+  font-family: Vazirmatn, "Atkinson Hyperlegible", "Segoe UI", sans-serif;
+}
+html[dir="rtl"] .block { border-left: 0; border-right: 4px solid var(--line); padding: 0.35rem 0.75rem 0.35rem 0; }
+html[dir="rtl"] .block.explicit_requirement { border-right-color: var(--req); }
+html[dir="rtl"] .block.engineering_recommendation { border-right-color: var(--rec); }
+html[dir="rtl"] .block.ai_interpretation { border-right-color: var(--interp); }
+html[dir="rtl"] .bubble.user { border-radius: 18px 18px 18px 4px; }
+.bubble[dir="rtl"] { text-align: right; }
+.lang-switch { display: flex; gap: 0.25rem; }
+.lang-switch button { background: transparent; color: inherit; border: 1px solid currentColor; border-radius: 999px; padding: 0.25rem 0.6rem; }
+.lang-switch button.active { background: var(--copper); color: #fff; border-color: var(--copper); }
+.auth .lang-switch { justify-content: flex-end; margin-bottom: 0.6rem; }
+.auth .lang-switch button { color: var(--ink); border-color: var(--line); }
+
 :root {
   --ink: #1c1914;
   --muted: #5c564c;

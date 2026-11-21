@@ -7,19 +7,23 @@ const state = {
   lastAnswer: null,
 };
 
-const PROMPTS = [
-  ["What shell-side design pressure applies to HX-2201, and which document governs?", "qa"],
-  ["Compare corrosion allowance across the specification, the datasheet, and the vendor offer.", "compare"],
-  ["The vendor offers a higher tube-side design pressure. Which value governs?", "compare"],
-  ["The channel cover is weeping after a thermal cycle. What should I consider?", "troubleshoot"],
-  ["Which TEMA type does the project require, and what does AES mean?", "qa"],
-  ["Which edition of ASME Section VIII applies to this exchanger?", "qa"],
-];
-
-const BLOCK_LABEL = {
-  explicit_requirement: "Explicit requirement",
-  engineering_recommendation: "Engineering recommendation",
-  ai_interpretation: "AI interpretation",
+const PROMPTS = {
+  en: [
+    ["What shell-side design pressure applies to HX-2201, and which document governs?", "qa"],
+    ["Compare corrosion allowance across the specification, the datasheet, and the vendor offer.", "compare"],
+    ["The vendor offers a higher tube-side design pressure. Which value governs?", "compare"],
+    ["The channel cover is weeping after a thermal cycle. What should I consider?", "troubleshoot"],
+    ["Which TEMA type does the project require, and what does AES mean?", "qa"],
+    ["Which edition of ASME Section VIII applies to this exchanger?", "qa"],
+  ],
+  fa: [
+    ["فشار طراحی سمت پوسته برای HX-2201 چقدر است و کدام سند حاکم است؟", "qa"],
+    ["اضافه ضخامت خوردگی را بین مشخصات، دیتاشیت و پیشنهاد فروشنده مقایسه کن.", "compare"],
+    ["فروشنده فشار طراحی سمت لوله بالاتری پیشنهاد داده است. کدام مقدار حاکم است؟", "compare"],
+    ["پوشش کانال بعد از یک چرخه حرارتی نشتی دارد. چه ملاحظاتی را باید ببینم؟", "troubleshoot"],
+    ["پروژه چه نوع TEMA می‌خواهد و AES یعنی چه؟", "qa"],
+    ["کدام ویرایش ASME Section VIII برای این مبدل حاکم است؟", "qa"],
+  ],
 };
 
 function $(id) { return document.getElementById(id); }
@@ -32,6 +36,7 @@ function setError(name, text) {
 async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
   if (state.token) headers.set("Authorization", `Bearer ${state.token}`);
+  headers.set("X-Lang", currentLang);
   if (options.json) {
     headers.set("Content-Type", "application/json");
     options.body = JSON.stringify(options.json);
@@ -42,8 +47,8 @@ async function api(path, options = {}) {
   try { data = text ? JSON.parse(text) : null; } catch { data = { detail: text }; }
   if (!response.ok) {
     const detail = data && data.detail;
-    const message = typeof detail === "string" ? detail : detail && detail.message ? detail.message : response.statusText;
-    const error = new Error(message || "Request failed");
+    const raw = typeof detail === "string" ? detail : detail && detail.message ? detail.message : response.statusText;
+    const error = new Error(translateError(raw) || t("requestFailed"));
     error.status = response.status;
     error.payload = data;
     throw error;
@@ -82,9 +87,9 @@ function renderUser() {
   const user = state.user;
   if (!user) return;
   const credits = user.credits || {};
-  const label = user.is_anonymous ? "Trial session" : user.email;
+  const label = user.is_anonymous ? t("trialSession") : user.email;
   $("who").textContent = label;
-  $("credits").textContent = `${credits.balance ?? "—"} credits · ${user.plan}`;
+  $("credits").textContent = t("credits", { n: credits.balance ?? "—", plan: user.plan });
   $("open-admin").hidden = user.role !== "admin";
   const upload = $("upload-form");
   upload.hidden = user.is_anonymous || user.plan === "trial";
@@ -97,7 +102,7 @@ async function refreshLibrary() {
   select.innerHTML = "";
   const global = document.createElement("option");
   global.value = "";
-  global.textContent = "Global knowledge only";
+  global.textContent = t("globalOnly");
   select.appendChild(global);
   for (const project of state.projects) {
     const option = document.createElement("option");
@@ -121,12 +126,12 @@ async function renderDocs(kbDocuments) {
   const list = $("project-docs");
   list.innerHTML = "";
   if (!state.projectId) {
-    list.innerHTML = `<li><span>Select a project to see its files. Global notes stay available.</span></li>`;
+    list.innerHTML = `<li><span>${t("selectProject")}</span></li>`;
     return;
   }
   const data = await api(`/api/projects/${state.projectId}/documents`);
   if (!data.documents.length) {
-    list.innerHTML = `<li><span>No project files yet.</span></li>`;
+    list.innerHTML = `<li><span>${t("noProjectFiles")}</span></li>`;
     return;
   }
   for (const doc of data.documents) list.appendChild(docItem(doc));
@@ -145,7 +150,7 @@ function docItem(doc) {
 function renderPrompts() {
   const host = $("prompts");
   host.innerHTML = "";
-  for (const [text, mode] of PROMPTS) {
+  for (const [text, mode] of PROMPTS[currentLang] || PROMPTS.en) {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = text;
@@ -161,6 +166,7 @@ function renderPrompts() {
 function addUserBubble(text) {
   const node = document.createElement("div");
   node.className = "bubble user";
+  node.dir = hasPersian(text) ? "rtl" : "ltr";
   node.textContent = text;
   $("messages").appendChild(node);
   node.scrollIntoView({ block: "end" });
@@ -170,16 +176,18 @@ function addAnswer(answer) {
   state.lastAnswer = answer;
   const node = document.createElement("article");
   node.className = "bubble assistant";
+  const answerFa = answer.answer_language === "fa" || (answer.blocks || []).some((block) => hasPersian(block.text));
+  node.dir = answerFa ? "rtl" : "ltr";
   const mode = document.createElement("p");
   mode.className = "meta";
-  mode.textContent = `${answer.mode} · ${answer.generator === "llm" ? "language model, grounded on the excerpts" : "extractive, quoted from the excerpts"}`;
+  mode.textContent = `${t(answer.mode) || answer.mode} · ${answer.generator === "llm" ? t("llmNote") : t("extractiveNote")}`;
   node.appendChild(mode);
   for (const block of answer.blocks || []) {
     const wrap = document.createElement("div");
     wrap.className = `block ${block.kind}`;
     const kind = document.createElement("div");
     kind.className = `kind ${block.kind}`;
-    kind.textContent = BLOCK_LABEL[block.kind] || block.kind;
+    kind.textContent = t(block.kind) || block.kind;
     const text = document.createElement("div");
     text.textContent = block.text;
     wrap.appendChild(kind);
@@ -220,7 +228,7 @@ function renderEvidence(answer) {
   host.innerHTML = "";
   const conflicts = answer.conflicts || [];
   if (!conflicts.length && !(answer.citations || []).length) {
-    host.innerHTML = `<p class="empty">No citation was returned.</p>`;
+    host.innerHTML = `<p class="empty">${t("noCitation")}</p>`;
     return;
   }
   for (const conflict of conflicts) {
@@ -228,13 +236,13 @@ function renderEvidence(answer) {
     card.className = "conflict";
     const gov = conflict.governing || {};
     card.innerHTML = `<header><strong></strong><span class="badge"></span></header><p></p><p class="meta"></p>`;
-    card.querySelector("strong").textContent = conflict.label;
+    card.querySelector("strong").textContent = currentLang === "fa" && conflict.label_fa ? conflict.label_fa : conflict.label;
     const badge = card.querySelector(".badge");
-    badge.textContent = conflict.status;
+    badge.textContent = t(conflict.status) || conflict.status;
     badge.classList.add(conflict.status);
     card.querySelector("p").textContent = `${conflict.why || ""} ${conflict.implication || ""}`;
-    const lines = (conflict.observed || []).map((item) => `${item.role}: ${item.value} — ${item.document} rev ${item.revision || "—"}, ${item.clause || "section"} p.${item.page || "—"}`);
-    card.querySelector(".meta").textContent = `Governing: ${gov.value || "—"} in ${gov.document || "—"}. ${lines.join(" · ")}`;
+    const lines = (conflict.observed || []).map((item) => `${t(item.role) || item.role}: ${item.value} — ${item.document} ${t("revisionWord")} ${item.revision || "—"}, ${item.clause || t("clause")} ${t("page")} ${item.page || "—"}`);
+    card.querySelector(".meta").textContent = `${t("governing")}: ${gov.value || "—"} — ${gov.document || "—"}. ${lines.join(" · ")}`;
     host.appendChild(card);
   }
   for (const citation of answer.citations || []) {
@@ -244,11 +252,11 @@ function renderEvidence(answer) {
     card.innerHTML = `<header><strong></strong><span class="badge"></span></header><p class="meta"></p><p class="excerpt"></p>`;
     card.querySelector("strong").textContent = `${citation.citation_id} · ${citation.source_document}`;
     const badge = card.querySelector(".badge");
-    badge.textContent = citation.statement_label || citation.statement_class;
+    badge.textContent = t(citation.statement_class) || citation.statement_label || citation.statement_class;
     badge.classList.add(citation.statement_class);
-    const rev = citation.revision ? `rev ${citation.revision}` : "revision not stated";
-    const edition = citation.edition ? `, edition ${citation.edition}` : "";
-    card.querySelector(".meta").textContent = `${citation.source_file} · clause ${citation.clause || citation.section || "—"} · page ${citation.page || "—"} · ${rev}${edition} · ${citation.store}`;
+    const rev = citation.revision ? `${t("revisionWord")} ${citation.revision}` : "";
+    const edition = citation.edition ? `${t("edition")} ${citation.edition}` : "";
+    card.querySelector(".meta").textContent = `${citation.source_file} · ${t("clause")} ${citation.clause || citation.section || "—"} · ${t("page")} ${citation.page || "—"} · ${rev} ${edition} · ${citation.store}`;
     card.querySelector(".excerpt").textContent = citation.excerpt;
     if (citation.corpus_label) {
       const note = document.createElement("p");
@@ -331,7 +339,7 @@ $("project").addEventListener("change", () => {
   state.conversationId = null;
   sessionStorage.setItem("eai_project", state.projectId);
   $("messages").innerHTML = "";
-  $("evidence-body").innerHTML = `<p class="empty">Citations for the next answer will land here.</p>`;
+  $("evidence-body").innerHTML = `<p class="empty">${t("nextEvidence")}</p>`;
   api("/api/kb/documents").then((kb) => renderDocs(kb.documents));
 });
 
@@ -339,7 +347,7 @@ $("upload-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   setError("upload", "");
   if (!state.projectId) {
-    setError("upload", "Select a project before uploading.");
+    setError("upload", t("uploadNeedProject"));
     return;
   }
   const form = new FormData(event.target);
@@ -424,7 +432,7 @@ async function loadAdmin() {
     const add = document.createElement("button");
     add.type = "button";
     add.className = "ghost small";
-    add.textContent = "Top up";
+    add.textContent = t("topUp");
     add.addEventListener("click", async () => {
       await api(`/api/admin/users/${user.id}/credits`, { method: "POST", json: { amount: Number(amount.value), mode: "topup" } });
       await loadAdmin();
@@ -432,7 +440,7 @@ async function loadAdmin() {
     const reset = document.createElement("button");
     reset.type = "button";
     reset.className = "ghost small";
-    reset.textContent = "Reset month";
+    reset.textContent = t("resetMonth");
     reset.addEventListener("click", async () => {
       await api(`/api/admin/users/${user.id}/credits`, { method: "POST", json: { amount: 0, mode: "reset" } });
       await loadAdmin();
@@ -450,7 +458,7 @@ async function loadAdmin() {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "ghost small";
-      button.textContent = "Revoke";
+      button.textContent = t("revoke");
       button.addEventListener("click", async () => {
         await api(`/api/admin/codes/${code.id}/revoke`, { method: "POST" });
         await loadAdmin();
@@ -459,8 +467,8 @@ async function loadAdmin() {
     }
     codeList.appendChild(li);
   }
-  $("usage").textContent = (usage.totals || []).map((row) => `${row.kind}: ${row.events} events, ${row.credits} credits`).join("\n") || "No usage yet.";
-  $("billing-state").textContent = billing.enabled ? "Stripe checkout is enabled." : "Stripe checkout is disabled.";
+  $("usage").textContent = (usage.totals || []).map((row) => `${row.kind}: ${row.events} events, ${row.credits} credits`).join("\n") || t("noUsage");
+  $("billing-state").textContent = billing.enabled ? t("stripeOn") : t("stripeOff");
 }
 
 $("code-form").addEventListener("submit", async (event) => {
@@ -482,5 +490,15 @@ $("code-form").addEventListener("submit", async (event) => {
     setError("code", error.message);
   }
 });
+
+window.onUiLang = () => {
+  renderPrompts();
+  renderUser();
+  document.querySelectorAll(".kind").forEach((node) => {
+    const kind = [...node.classList].find((name) => name !== "kind");
+    if (kind) node.textContent = t(kind);
+  });
+  if (state.lastAnswer) renderEvidence(state.lastAnswer);
+};
 
 boot();

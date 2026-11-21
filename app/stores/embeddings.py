@@ -41,16 +41,26 @@ def _fastembed_model(model_name: str):
     return TextEmbedding(model_name=model_name, cache_dir=str(cache))
 
 
-def embed_texts(texts: list[str]) -> list[list[float]]:
+def _e5_prefix(kind: str) -> str:
+    settings = get_settings()
+    if settings.embedding_provider == "hash":
+        return ""
+    if "e5" not in settings.embedding_model.lower():
+        return ""
+    return "query: " if kind == "query" else "passage: "
+
+
+def embed_texts(texts: list[str], *, kind: str = "passage") -> list[list[float]]:
     if not texts:
         return []
     settings = get_settings()
     provider = settings.embedding_provider
+    prepared = [f"{_e5_prefix(kind)}{text}" if text else text for text in texts]
     if provider == "hash":
-        return [hash_embed(t) for t in texts]
+        return [hash_embed(t) for t in prepared]
     try:
         model = _fastembed_model(settings.embedding_model)
-        return [list(map(float, vec)) for vec in model.embed(texts)]
+        return [list(map(float, vec)) for vec in model.embed(prepared)]
     except Exception:
         if provider == "fastembed":
             # Auto-style fallback so a missing model does not take the demo down.

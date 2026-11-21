@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from app.textnorm import normalize_persian
+
 # Mechanical values are governed by the project specification.
 # Process values are governed by the datasheet.
 # Vendor offers never govern. Global notes never govern a project number.
@@ -43,6 +45,25 @@ DOC_RANK_PROCESS = {
     "vendor": 2,
     "standard_note": 3,
     "handbook": 4,
+}
+
+LABELS_FA = {
+    "shell_design_pressure": "فشار طراحی سمت پوسته",
+    "tube_design_pressure": "فشار طراحی سمت لوله",
+    "shell_design_temperature": "دمای طراحی سمت پوسته",
+    "tube_design_temperature": "دمای طراحی سمت لوله",
+    "mdmt": "حداقل دمای طراحی فلز",
+    "corrosion_allowance_shell": "اضافه ضخامت خوردگی سمت پوسته",
+    "corrosion_allowance_tube": "اضافه ضخامت خوردگی سمت لوله",
+    "tema_type": "نوع TEMA",
+    "shell_material": "جنس پوسته",
+    "tube_material": "جنس لوله",
+    "code_edition": "ویرایش استاندارد حاکم",
+    "operating_pressure_shell": "فشار بهره‌برداری سمت پوسته",
+    "operating_pressure_tube": "فشار بهره‌برداری سمت لوله",
+    "operating_temperature": "دمای بهره‌برداری",
+    "flow_rate": "دبی جرمی",
+    "fouling_factor": "ضریب گرفتگی",
 }
 
 LABELS = {
@@ -122,6 +143,7 @@ class Conflict:
         return {
             "parameter": self.parameter,
             "label": self.label,
+            "label_fa": LABELS_FA.get(self.parameter, self.label),
             "status": self.status,
             "governing": obs(self.governing),
             "observed": [obs(item) for item in self.observed],
@@ -249,18 +271,18 @@ def _explain(parameter: str, governing: Observed, observed: list[Observed], stat
 
 def named_conflicts(question: str, conflicts: list[Conflict]) -> list[Conflict]:
     """Conflicts whose parameter is actually named in the question."""
-    text = question.lower()
+    text = normalize_persian(question).lower()
     aliases = {
-        "shell_design_pressure": ["shell-side design pressure", "shell design pressure"],
-        "tube_design_pressure": ["tube-side design pressure", "tube design pressure"],
-        "corrosion_allowance_shell": ["corrosion allowance"],
-        "corrosion_allowance_tube": ["corrosion allowance", "tube-side corrosion"],
+        "shell_design_pressure": ["shell-side design pressure", "shell design pressure", "فشار طراحی سمت پوسته", "فشار طراحی پوسته"],
+        "tube_design_pressure": ["tube-side design pressure", "tube design pressure", "فشار طراحی سمت لوله", "فشار طراحی لوله"],
+        "corrosion_allowance_shell": ["corrosion allowance", "خوردگی"],
+        "corrosion_allowance_tube": ["corrosion allowance", "tube-side corrosion", "خوردگی"],
         "tema_type": ["tema"],
-        "mdmt": ["mdmt", "minimum design metal"],
-        "code_edition": ["asme", "code edition", "division 1"],
+        "mdmt": ["mdmt", "minimum design metal", "حداقل دمای طراحی"],
+        "code_edition": ["asme", "code edition", "division 1", "ویرایش استاندارد"],
         "shell_material": ["shell material", "sa-516"],
         "tube_material": ["tube material", "sa-179"],
-        "shell_design_temperature": ["shell-side design temperature", "design temperature"],
+        "shell_design_temperature": ["shell-side design temperature", "design temperature", "دمای طراحی"],
         "tube_design_temperature": ["tube-side design temperature"],
     }
     chosen = []
@@ -272,15 +294,15 @@ def named_conflicts(question: str, conflicts: list[Conflict]) -> list[Conflict]:
 
 
 def filter_parameters(question: str, conflicts: list[Conflict]) -> list[Conflict]:
-    text = question.lower()
+    text = normalize_persian(question).lower()
     aliases = {
-        "shell_design_pressure": ["shell-side design pressure", "shell design pressure", "design pressure"],
-        "tube_design_pressure": ["tube-side design pressure", "tube design pressure"],
-        "corrosion_allowance_shell": ["corrosion allowance", "shell-side corrosion"],
-        "corrosion_allowance_tube": ["tube-side corrosion", "corrosion allowance"],
+        "shell_design_pressure": ["shell-side design pressure", "shell design pressure", "design pressure", "فشار طراحی سمت پوسته", "فشار طراحی پوسته"],
+        "tube_design_pressure": ["tube-side design pressure", "tube design pressure", "فشار طراحی سمت لوله"],
+        "corrosion_allowance_shell": ["corrosion allowance", "shell-side corrosion", "خوردگی"],
+        "corrosion_allowance_tube": ["tube-side corrosion", "corrosion allowance", "خوردگی"],
         "tema_type": ["tema"],
-        "mdmt": ["mdmt", "minimum design metal"],
-        "code_edition": ["edition", "asme", "division 1"],
+        "mdmt": ["mdmt", "minimum design metal", "حداقل دمای طراحی"],
+        "code_edition": ["edition", "asme", "division 1", "ویرایش استاندارد"],
         "shell_material": ["material", "sa-516"],
         "tube_material": ["tube material", "sa-179"],
     }

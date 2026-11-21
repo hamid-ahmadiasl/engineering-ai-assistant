@@ -78,6 +78,7 @@ class Settings:
     llm_api_key: str
     embedding_provider: str
     embedding_model: str
+    query_translation: str
     credit_cost_per_query: int
     free_monthly_credits: int
     pro_monthly_credits: int
@@ -175,7 +176,8 @@ def get_settings() -> Settings:
         llm_model=model,
         llm_api_key=key,
         embedding_provider=embed,
-        embedding_model=os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"),
+        embedding_model=os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-small"),
+        query_translation=os.getenv("QUERY_TRANSLATION", "both").strip().lower() or "both",
         credit_cost_per_query=_int("CREDIT_COST_PER_QUERY", 1),
         free_monthly_credits=_int("FREE_MONTHLY_CREDITS", 40),
         pro_monthly_credits=_int("PRO_MONTHLY_CREDITS", 400),

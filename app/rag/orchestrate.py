@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Chunk, Claim, Project
 from app.rag.answer import answer_from_evidence
+from app.rag.language import retrieval_text
 from app.rag.precedence import compare_claims, filter_parameters, named_conflicts
 from app.rag.retrieve import retrieve
 
@@ -16,10 +17,12 @@ TROUBLE_WORDS = (
     "troubleshoot", "leak", "weep", "fouling", "vibration", "failure", "failed",
     "pressure drop", "root cause", "problem", "unusual", "noise", "tube leak",
     "gasket", "why is", "what should i check",
+    "نشت", "نشتی", "لرزش", "گرفتگی", "عیب", "واشر",
 )
 COMPARE_WORDS = (
     "compare", "conflict", "deviation", "versus", " vs ", "difference",
     "which governs", "which document", "vendor offer", "does the vendor",
+    "مقایسه", "تعارض", "انحراف", "حاکم", "فروشنده",
 )
 
 
@@ -51,9 +54,9 @@ def _chunks_for_clauses(db: Session, project_id: str, pairs: list[tuple[str, str
 def run_query(db: Session, *, project: Project | None, message: str, mode: str | None) -> dict:
     resolved = classify(message, mode)
     project_id = project.id if project else None
-    query = message
+    query = retrieval_text(message)
     if resolved == "troubleshoot":
-        query = message + " troubleshooting considerations limitations operating window"
+        query = query + " troubleshooting considerations limitations operating window leak gasket"
     chunks = retrieve(db, query, project_id, k=8)
 
     conflicts: list[dict] = []
@@ -67,9 +70,10 @@ def run_query(db: Session, *, project: Project | None, message: str, mode: str |
             except json.JSONDecodeError:
                 rules = ""
         found = compare_claims(claims, rules)
-        named = named_conflicts(message, found)
+        searchable = f"{message}\n{query}"
+        named = named_conflicts(searchable, found)
         broad = resolved == "compare" or any(
-            word in message.lower() for word in ("compare", "conflict", "deviation", "governs")
+            word in searchable.lower() for word in ("compare", "conflict", "deviation", "governs", "مقایسه", "حاکم")
         )
         if broad:
             chosen = named or filter_parameters(message, found)

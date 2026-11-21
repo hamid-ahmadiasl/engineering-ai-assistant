@@ -10,11 +10,12 @@ from sqlalchemy.orm import Session
 from app.models import Chunk
 from app.stores.vector_store import get_store, scope_key
 
-_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9.\-]{1,}")
+_TOKEN = re.compile(r"[A-Za-z0-9\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF.\-]{1,}")
 _STOP = {
     "what", "which", "does", "this", "that", "with", "from", "have", "your",
     "about", "into", "should", "would", "could", "there", "their", "project",
     "please", "explain", "compare", "across", "where", "when", "will",
+    "برای", "است", "این", "آن", "که", "را", "از", "به", "با", "در", "یک", "های", "می",
 }
 
 
