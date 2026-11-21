@@ -20,12 +20,14 @@ from sqlalchemy.orm import Session
 
 from app import __version__
 from app.access import (
+    assert_owner,
     assert_read,
     assert_upload_allowed,
     assert_write,
     bearer_token,
     client_ip,
     get_project,
+    membership,
     rate_limit,
     visible_projects,
 )
@@ -123,6 +125,20 @@ class ProjectIn(BaseModel):
     name: str = Field(min_length=2, max_length=200)
     code: str = Field(min_length=2, max_length=80)
     description: str = ""
+    equipment: str = ""
+
+
+class ProjectPatch(BaseModel):
+    name: str | None = None
+    code: str | None = None
+    description: str | None = None
+    equipment: str | None = None
+
+
+class ScopesIn(BaseModel):
+    model_config = {"populate_by_name": True}
+    include_global: bool = Field(default=True, alias="global")
+    project_ids: list[str] = []
 
 
 class ChatIn(BaseModel):
@@ -131,6 +147,7 @@ class ChatIn(BaseModel):
     mode: str | None = "auto"
     conversation_id: str | None = None
     document_ids: list[str] | None = None
+    scopes: ScopesIn | None = None
 
 
 class CodeIn(BaseModel):
@@ -164,13 +181,15 @@ def _public_user(user: User) -> dict:
     }
 
 
-def _public_project(project: Project) -> dict:
+def _public_project(project: Project, role: str | None = None) -> dict:
     return {
         "id": project.id,
         "code": project.code,
         "name": project.name,
         "description": project.description,
+        "equipment": getattr(project, "equipment", "") or "",
         "visibility": project.visibility,
+        "role": role,
         "precedence": json.loads(project.precedence_json) if project.precedence_json else None,
     }
 
@@ -305,7 +324,17 @@ def redeem(body: RedeemIn, user: User = Depends(current_user), db: Session = Dep
 
 @app.get("/api/projects")
 def list_projects(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    return {"projects": [_public_project(p) for p in visible_projects(db, user)]}
+    rows = []
+    for project in visible_projects(db, user):
+        if user.role == "admin":
+            role = "admin"
+        elif project.visibility == "public_demo" and membership(db, project, user) is None:
+            role = "viewer"
+        else:
+            row = membership(db, project, user)
+            role = row.role if row else "viewer"
+        rows.append(_public_project(project, role))
+    return {"projects": rows}
 
 
 @app.post("/api/projects")
@@ -327,6 +356,7 @@ def create_project(body: ProjectIn, user: User = Depends(current_user), db: Sess
         code=code,
         name=body.name.strip(),
         description=body.description.strip(),
+        equipment=(body.equipment or "").strip(),
         visibility="private",
         owner_id=user.id,
         precedence_json=json.dumps(
@@ -345,7 +375,46 @@ def create_project(body: ProjectIn, user: User = Depends(current_user), db: Sess
     db.flush()
     db.add(Membership(project_id=project.id, user_id=user.id, role="owner"))
     db.flush()
-    return _public_project(project)
+    return _public_project(project, "owner")
+
+
+@app.patch("/api/projects/{project_id}")
+def update_project(
+    project_id: str,
+    body: ProjectPatch,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    project = get_project(db, project_id)
+    assert_owner(db, project, user)
+    if body.code is not None:
+        code = body.code.strip().upper()
+        if code != project.code and db.scalar(select(Project).where(Project.code == code)):
+            raise HTTPException(status_code=409, detail="A project with that code already exists.")
+        project.code = code
+    if body.name is not None:
+        if len(body.name.strip()) < 2:
+            raise HTTPException(status_code=400, detail="Enter a project name of at least 2 characters.")
+        project.name = body.name.strip()
+    if body.description is not None:
+        project.description = body.description.strip()
+    if body.equipment is not None:
+        project.equipment = body.equipment.strip()
+    return _public_project(project, "owner" if user.role != "admin" else "admin")
+
+
+@app.delete("/api/projects/{project_id}")
+def remove_project(project_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    project = get_project(db, project_id)
+    assert_owner(db, project, user)
+    docs = list(db.scalars(select(Document).where(Document.project_id == project.id)))
+    for document in docs:
+        _remove_drive_file(db, document)
+        delete_document(db, document)
+    for row in db.scalars(select(Membership).where(Membership.project_id == project.id)):
+        db.delete(row)
+    db.delete(project)
+    return {"ok": True}
 
 
 _YEAR = re.compile(r"(?:19|20)\d{2}")
@@ -406,6 +475,10 @@ def _mentioned_documents(db: Session, user: User, project: Project | None, docum
     if any(doc_id not in found for doc_id in unique):
         raise HTTPException(status_code=404, detail="A mentioned document was not found.")
     for doc in docs:
+        if doc.scope == "personal":
+            if doc.uploaded_by != user.id and user.role != "admin":
+                raise HTTPException(status_code=403, detail="You do not have access to that project.")
+            continue
         if doc.scope == "global" or not doc.project_id:
             continue
         owner = project if project is not None and project.id == doc.project_id else get_project(db, doc.project_id)
@@ -473,6 +546,12 @@ def _keep_original(
         path = write_local_copy(data, filename, settings.data_dir / "uploads" / bucket / uuid.uuid4().hex)
         return path, {"storage": kind, "drive_file_id": "", "stored_path": str(path)}
 
+    if scope == "personal":
+        folders = [ROOT_FOLDER, "General library"]
+    elif project is None:
+        folders = [ROOT_FOLDER, GLOBAL_FOLDER]
+    else:
+        folders = [ROOT_FOLDER, project.code, section_folder(doc_type, scope)]
     if not settings.google_configured:
         return local("")
     token = decrypt_token(user.drive_refresh_token or "")
@@ -480,11 +559,6 @@ def _keep_original(
         if settings.allow_local_uploads:
             return local("temporary")
         raise HTTPException(status_code=409, detail="Connect Google Drive before uploading files.")
-    folders = [
-        ROOT_FOLDER,
-        project.code if project is not None else GLOBAL_FOLDER,
-        section_folder(doc_type, scope),
-    ]
     try:
         file_id = client_for_token(token).put_in_folders(folders, filename, data, "application/octet-stream")
     except DriveError as exc:
@@ -658,22 +732,107 @@ async def upload_kb_document(
     return _public_document(document)
 
 
+def _chat_scopes(db: Session, user: User, body: ChatIn) -> tuple[bool, list[Project]]:
+    if body.scopes is not None:
+        projects = []
+        for project_id in body.scopes.project_ids:
+            project = get_project(db, project_id)
+            assert_read(db, project, user)
+            if project.id not in {item.id for item in projects}:
+                projects.append(project)
+        include_global = body.scopes.include_global
+        if not include_global and not projects:
+            raise HTTPException(status_code=400, detail="Select at least one knowledge scope.")
+        return include_global, projects
+    if body.project_id:
+        project = get_project(db, body.project_id)
+        assert_read(db, project, user)
+        return True, [project]
+    if user.is_anonymous:
+        demo = db.scalar(select(Project).where(Project.code == "HX-2201"))
+        return True, [demo] if demo else []
+    return True, []
+
+
+@app.get("/api/library/documents")
+def library_documents(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    if user.is_anonymous:
+        return {"documents": []}
+    docs = list(
+        db.scalars(
+            select(Document)
+            .where(Document.scope == "personal", Document.uploaded_by == user.id)
+            .order_by(Document.title)
+        )
+    )
+    _mark_missing_sources(db, docs)
+    return {"documents": [_public_document(doc) for doc in docs]}
+
+
+@app.post("/api/library/documents")
+async def upload_library_document(
+    file: UploadFile = File(...),
+    title: str = Form(""),
+    doc_type: str = Form("reference"),
+    revision: str = Form(""),
+    edition: str = Form(""),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    if user.is_anonymous or user.plan == "trial":
+        raise HTTPException(status_code=403, detail="The trial can read the demo project. Uploads and edits need a signed-in account.")
+    rate_limit(db, f"upload:{user.id}", 30, hours=1)
+    filename, data = _original_bytes(file)
+    assert_upload_allowed(db, user, len(data))
+    path, stored = _keep_original(user, project=None, filename=filename, data=data, doc_type=doc_type, scope="personal")
+    document = ingest_path(
+        db,
+        path,
+        scope="personal",
+        project_id=None,
+        uploaded_by=user.id,
+        meta={
+            "title": title or path.stem,
+            "doc_type": doc_type or "reference",
+            "revision": revision,
+            "edition": edition,
+            "hierarchy_level": 6,
+            "owner_id": user.id,
+            "corpus_label": "Personal general library. Visible only to you.",
+            "statement_class_default": "informative",
+        },
+    )
+    _apply_storage(document, stored)
+    return _public_document(document)
+
+
+@app.delete("/api/library/documents/{document_id}")
+def remove_library_document(document_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    document = db.get(Document, document_id)
+    if document is None or document.scope != "personal":
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if document.uploaded_by != user.id and user.role != "admin":
+        raise HTTPException(status_code=403, detail="You do not have access to that project.")
+    _remove_drive_file(db, document)
+    delete_document(db, document)
+    return {"ok": True}
+
+
 @app.post("/api/chat")
 def chat(body: ChatIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     settings = get_settings()
     if settings.demo_mode:
         rate_limit(db, f"chat:{user.id}", settings.demo_chat_per_hour, hours=1)
-    project = None
-    if body.project_id:
-        project = get_project(db, body.project_id)
-        assert_read(db, project, user)
-    elif user.is_anonymous:
-        project = db.scalar(select(Project).where(Project.code == "HX-2201"))
+    include_global, projects = _chat_scopes(db, user, body)
+    project = projects[0] if len(projects) == 1 else None
     charge_or_http(db, user, settings.credit_cost_per_query, "chat", body.message[:240])
     mentioned = _mentioned_documents(db, user, project, body.document_ids)
     result = run_query(
         db,
         project=project,
+        projects=projects,
+        include_global=include_global,
+        owner_id=None if user.is_anonymous else user.id,
         message=body.message.strip(),
         mode=body.mode,
         document_ids=mentioned,

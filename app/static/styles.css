@@ -173,7 +173,19 @@ textarea { resize: vertical; }
 .side-head { margin-bottom: 0.8rem; }
 .side-head strong { display: block; letter-spacing: -0.03em; }
 .side-head em { display: block; font-style: normal; color: var(--muted); font-size: 0.75rem; }
-.project-pick { display: grid; gap: 0.25rem; margin: 0.4rem 0 0.8rem; font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.project-pick { display: grid; gap: 0.35rem; margin: 0.4rem 0 0.8rem; font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); position: relative; }
+.scope-label { display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; text-transform: none; letter-spacing: 0; }
+.scope-button, .scope-chips { text-transform: none; letter-spacing: 0; }
+.scope-button { text-align: start; border: 1px solid var(--line); background: var(--bg); border-radius: 12px; padding: 0.55rem 0.7rem; }
+.scope-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.scope-chips button, .scope-row { border: 1px solid var(--line); background: var(--panel-solid); color: var(--ink); border-radius: 999px; padding: 0.15rem 0.55rem; font-size: 0.78rem; }
+.scope-menu { position: absolute; z-index: 8; inset-inline: 0; top: 100%; max-height: 280px; overflow: auto; background: var(--panel-solid); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 0.4rem; }
+.scope-row { display: flex; align-items: center; gap: 0.35rem; border-radius: 10px; padding: 0.35rem; margin-top: 0.25rem; }
+.scope-row label { margin: 0; flex: 1; text-transform: none; letter-spacing: 0; font-size: 0.85rem; }
+dialog { border: 1px solid var(--line); border-radius: 16px; background: var(--panel-solid); color: var(--ink); width: min(440px, 92vw); padding: 1rem; box-shadow: var(--shadow); }
+dialog::backdrop { background: rgba(0,0,0,0.55); }
+.modal-actions { display: flex; justify-content: flex-end; gap: 0.4rem; }
+.empty-card { border: 1px dashed var(--line); border-radius: 12px; padding: 0.7rem; text-transform: none; letter-spacing: 0; }
 .drive-pill { display: inline-flex; align-items: center; gap: 0.35rem; border: 1px solid var(--line); border-radius: 999px; padding: 0.25rem 0.6rem; font-size: 0.75rem; margin-bottom: 0.8rem; }
 .drive-pill.on { border-color: rgba(46, 230, 199, 0.45); color: var(--accent); }
 .library h2, .evidence h2 { font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; margin: 0; color: var(--muted); font-weight: 650; }

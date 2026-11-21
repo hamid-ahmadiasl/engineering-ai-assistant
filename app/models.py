@@ -77,6 +77,7 @@ class Project(Base):
     code: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
+    equipment: Mapped[str] = mapped_column(String(120), default="")
     visibility: Mapped[str] = mapped_column(String(20), default="private")
     owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     precedence_json: Mapped[str] = mapped_column(Text, default="")
@@ -136,6 +137,7 @@ class Chunk(Base):
     title: Mapped[str] = mapped_column(String(300), default="")
     filename: Mapped[str] = mapped_column(String(300), default="")
     corpus_label: Mapped[str] = mapped_column(String(200), default="")
+    owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
 
 
 class Claim(Base):

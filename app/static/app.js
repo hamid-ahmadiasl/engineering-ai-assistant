@@ -4,6 +4,8 @@ const state = {
   projects: [],
   projectId: sessionStorage.getItem("eai_project") || "",
   conversationId: null,
+  scopes: JSON.parse(localStorage.getItem("eai_scopes") || "null") || { global: true, projectIds: [], fresh: true },
+  editingProject: null,
   lastAnswer: null,
   library: [],
   mentions: [],
@@ -101,6 +103,8 @@ function renderUser() {
   const locked = user.is_anonymous || user.plan === "trial";
   $("upload-form").hidden = locked;
   $("standard-form").hidden = locked;
+  $("library-form").hidden = locked;
+  $("new-project").hidden = locked;
   refreshDrive();
 }
 
@@ -125,49 +129,137 @@ async function refreshDrive() {
   }
 }
 
+function selectedProjects() {
+  const ids = new Set(state.scopes.projectIds);
+  return state.projects.filter((project) => ids.has(project.id));
+}
+
+function saveScopes() {
+  const known = new Set(state.projects.map((project) => project.id));
+  state.scopes.projectIds = state.scopes.projectIds.filter((id) => known.has(id));
+  if (!state.scopes.global && !state.scopes.projectIds.length) state.scopes.global = true;
+  localStorage.setItem("eai_scopes", JSON.stringify(state.scopes));
+  state.projectId = state.scopes.projectIds[0] || "";
+  renderScope();
+}
+
+function toggleGlobal() {
+  if (state.scopes.global && !state.scopes.projectIds.length) {
+    renderScope();
+    return;
+  }
+  state.scopes.global = !state.scopes.global;
+  saveScopes();
+  refreshLibrary();
+}
+
+function toggleProject(id) {
+  const ids = new Set(state.scopes.projectIds);
+  if (ids.has(id)) ids.delete(id);
+  else ids.add(id);
+  state.scopes.projectIds = [...ids];
+  saveScopes();
+  refreshLibrary();
+}
+
+function renderScope() {
+  const chips = $("scope-chips");
+  const menu = $("scope-menu");
+  if (!chips || !menu) return;
+  chips.innerHTML = "";
+  const addChip = (label, onRemove) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.addEventListener("click", onRemove);
+    chips.appendChild(button);
+  };
+  if (state.scopes.global) addChip(t("generalKnowledge"), toggleGlobal);
+  for (const project of selectedProjects()) addChip(project.code, () => toggleProject(project.id));
+  menu.innerHTML = "";
+  const general = document.createElement("label");
+  general.innerHTML = `<input type="checkbox" ${state.scopes.global ? "checked" : ""} /> <span></span>`;
+  general.querySelector("span").textContent = t("generalKnowledge");
+  general.querySelector("input").addEventListener("change", toggleGlobal);
+  menu.appendChild(general);
+  for (const project of state.projects) {
+    const row = document.createElement("div");
+    row.className = "scope-row";
+    const label = document.createElement("label");
+    label.innerHTML = `<input type="checkbox" ${state.scopes.projectIds.includes(project.id) ? "checked" : ""} /> <span></span>`;
+    label.querySelector("span").textContent = `${project.code} — ${project.name}`;
+    label.querySelector("input").addEventListener("change", () => toggleProject(project.id));
+    row.appendChild(label);
+    if (project.role === "owner" || project.role === "admin") {
+      const rename = document.createElement("button");
+      rename.type = "button";
+      rename.className = "ghost small";
+      rename.textContent = t("renameProject");
+      rename.addEventListener("click", () => openProjectModal(project));
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "ghost small";
+      remove.textContent = t("deleteDoc");
+      remove.addEventListener("click", () => deleteProject(project));
+      row.append(rename, remove);
+    }
+    menu.appendChild(row);
+  }
+  const empty = !state.projects.length;
+  $("no-projects").hidden = !empty;
+  const chatEmpty = $("chat-empty-project");
+  if (chatEmpty) chatEmpty.hidden = !empty;
+  $("general-library").hidden = !state.scopes.global;
+  $("standards-section").hidden = !state.scopes.projectIds.length;
+  $("documents-section").hidden = !state.scopes.projectIds.length;
+  $("scope-button").textContent = chips.children.length ? t("chooseScopes") : t("chooseScopes");
+}
+
 async function refreshLibrary() {
   const [projects, kb] = await Promise.all([api("/api/projects"), api("/api/kb/documents")]);
   state.projects = projects.projects;
-  const select = $("project");
-  select.innerHTML = "";
-  const global = document.createElement("option");
-  global.value = "";
-  global.textContent = t("globalOnly");
-  select.appendChild(global);
-  for (const project of state.projects) {
-    const option = document.createElement("option");
-    option.value = project.id;
-    option.textContent = `${project.code} — ${project.name}`;
-    select.appendChild(option);
+  if (state.scopes.fresh) {
+    const demo = state.projects.find((project) => project.code === "HX-2201");
+    if (demo && !state.scopes.projectIds.length) state.scopes.projectIds = [demo.id];
+    delete state.scopes.fresh;
   }
-  if (!state.projects.some((p) => p.id === state.projectId)) {
-    const demo = state.projects.find((p) => p.code === "HX-2201");
-    state.projectId = demo ? demo.id : "";
-  }
-  select.value = state.projectId;
-  sessionStorage.setItem("eai_project", state.projectId);
-  renderDocs(kb.documents);
+  saveScopes();
+  await renderDocs(kb.documents);
 }
 
 async function renderDocs(kbDocuments) {
   const kb = $("kb-docs");
   kb.innerHTML = "";
-  const globalDocs = kbDocuments.map((doc) => ({ ...doc, scope: doc.scope || "global" }));
+  const globalDocs = state.scopes.global ? kbDocuments.map((doc) => ({ ...doc, scope: doc.scope || "global" })) : [];
   for (const doc of globalDocs) kb.appendChild(docItem(doc, false));
+  const libraryHost = $("library-docs");
+  libraryHost.innerHTML = "";
+  let personal = [];
+  if (state.scopes.global && state.user && !state.user.is_anonymous) {
+    personal = (await api("/api/library/documents")).documents.map((doc) => ({ ...doc, scope: "personal" }));
+    if (!personal.length) libraryHost.innerHTML = `<li><span>${t("noProjectFiles")}</span></li>`;
+    for (const doc of personal) libraryHost.appendChild(docItem(doc, true));
+  }
   const standards = $("standard-docs");
   const list = $("project-docs");
   standards.innerHTML = "";
   list.innerHTML = "";
-  if (!state.projectId) {
-    standards.innerHTML = `<li><span>${t("selectProject")}</span></li>`;
-    list.innerHTML = `<li><span>${t("selectProject")}</span></li>`;
-    state.library = globalDocs;
+  const chosen = selectedProjects();
+  if (!chosen.length) {
+    state.library = [...personal, ...globalDocs];
     return;
   }
-  const data = await api(`/api/projects/${state.projectId}/documents`);
-  const projectDocs = data.documents.filter((doc) => doc.doc_type !== "standard");
-  const standardDocs = data.documents.filter((doc) => doc.doc_type === "standard");
-  state.library = [...standardDocs, ...projectDocs, ...globalDocs];
+  const projectDocs = [];
+  const standardDocs = [];
+  for (const project of chosen) {
+    const data = await api(`/api/projects/${project.id}/documents`);
+    for (const doc of data.documents) {
+      const labeled = chosen.length > 1 ? { ...doc, title: `${project.code} · ${doc.title}` } : doc;
+      if (doc.doc_type === "standard") standardDocs.push(labeled);
+      else projectDocs.push(labeled);
+    }
+  }
+  state.library = [...standardDocs, ...projectDocs, ...personal, ...globalDocs];
   if (!standardDocs.length) standards.innerHTML = `<li><span>${t("noStandards")}</span></li>`;
   for (const doc of standardDocs) standards.appendChild(docItem(doc, true));
   if (!projectDocs.length) list.innerHTML = `<li><span>${t("noProjectFiles")}</span></li>`;
@@ -333,8 +425,11 @@ function renderChips() {
 }
 
 async function deleteDocument(doc) {
-  if (!state.projectId || !window.confirm(t("confirmDelete"))) return;
-  await api(`/api/projects/${state.projectId}/documents/${doc.id}`, { method: "DELETE" });
+  if (!window.confirm(t("confirmDelete"))) return;
+  const path = doc.scope === "personal"
+    ? `/api/library/documents/${doc.id}`
+    : `/api/projects/${doc.project_id}/documents/${doc.id}`;
+  await api(path, { method: "DELETE" });
   state.mentions = state.mentions.filter((item) => item.id !== doc.id);
   renderChips();
   const kb = await api("/api/kb/documents");
@@ -496,7 +591,8 @@ function renderEvidence(answer) {
     card.className = "citation";
     card.id = `cit-${citation.citation_id}`;
     card.innerHTML = `<header><strong></strong><span class="badge"></span></header><p class="meta"></p><p class="excerpt"></p>`;
-    card.querySelector("strong").textContent = `${citation.citation_id} · ${citation.source_document}`;
+    const where = citation.store_label ? ` · ${citation.store_label}` : "";
+    card.querySelector("strong").textContent = `${citation.citation_id} · ${citation.source_document}${where}`;
     const badge = card.querySelector(".badge");
     badge.textContent = t(citation.statement_class) || citation.statement_label || citation.statement_class;
     badge.classList.add(citation.statement_class);
@@ -603,23 +699,17 @@ $("logout").addEventListener("click", () => {
   showAuth();
 });
 
-$("project").addEventListener("change", () => {
-  state.projectId = $("project").value;
-  state.conversationId = null;
-  state.mentions = [];
-  renderChips();
-  closeMention();
-  sessionStorage.setItem("eai_project", state.projectId);
-  $("messages").innerHTML = "";
-  syncEmpty();
-  $("evidence-body").innerHTML = `<p class="empty">${t("nextEvidence")}</p>`;
-  api("/api/kb/documents").then((kb) => renderDocs(kb.documents));
+$("scope-button").addEventListener("click", () => {
+  const menu = $("scope-menu");
+  menu.hidden = !menu.hidden;
+  $("scope-button").setAttribute("aria-expanded", menu.hidden ? "false" : "true");
 });
 
 async function submitUpload(event, errorName, extra) {
   event.preventDefault();
   setError(errorName, "");
-  if (!state.projectId) {
+  const target = state.scopes.projectIds[0];
+  if (!target) {
     setError(errorName, t("uploadNeedProject"));
     return;
   }
@@ -627,7 +717,7 @@ async function submitUpload(event, errorName, extra) {
   for (const [key, value] of Object.entries(extra || {})) form.set(key, value);
   event.target.classList.add("uploading");
   try {
-    await api(`/api/projects/${state.projectId}/documents`, { method: "POST", body: form });
+    await api(`/api/projects/${target}/documents`, { method: "POST", body: form });
     event.target.reset();
     const kb = await api("/api/kb/documents");
     await renderDocs(kb.documents);
@@ -640,6 +730,64 @@ async function submitUpload(event, errorName, extra) {
 
 $("upload-form").addEventListener("submit", (event) => submitUpload(event, "upload"));
 $("standard-form").addEventListener("submit", (event) => submitUpload(event, "standard", { doc_type: "standard" }));
+$("library-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  setError("library", "");
+  const form = new FormData(event.target);
+  event.target.classList.add("uploading");
+  try {
+    await api("/api/library/documents", { method: "POST", body: form });
+    event.target.reset();
+    const kb = await api("/api/kb/documents");
+    await renderDocs(kb.documents);
+  } catch (error) {
+    setError("library", error.message);
+  } finally {
+    event.target.classList.remove("uploading");
+  }
+});
+
+function openProjectModal(project) {
+  state.editingProject = project || null;
+  const form = $("project-form");
+  form.code.value = project ? project.code : "";
+  form.name.value = project ? project.name : "";
+  form.equipment.value = project ? (project.equipment || "") : "";
+  form.description.value = project ? (project.description || "") : "";
+  $("project-modal-title").textContent = project ? t("renameProject") : t("newProject");
+  setError("project", "");
+  $("project-modal").showModal();
+}
+
+async function deleteProject(project) {
+  if (!window.confirm(t("confirmDeleteProject"))) return;
+  await api(`/api/projects/${project.id}`, { method: "DELETE" });
+  state.scopes.projectIds = state.scopes.projectIds.filter((id) => id !== project.id);
+  $("scope-menu").hidden = true;
+  await refreshLibrary();
+}
+
+$("new-project").addEventListener("click", () => openProjectModal(null));
+$("new-project-empty").addEventListener("click", () => openProjectModal(null));
+$("new-project-chat").addEventListener("click", () => openProjectModal(null));
+$("project-cancel").addEventListener("click", () => $("project-modal").close());
+$("project-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  setError("project", "");
+  const data = Object.fromEntries(new FormData(event.target));
+  try {
+    if (state.editingProject) {
+      await api(`/api/projects/${state.editingProject.id}`, { method: "PATCH", json: data });
+    } else {
+      const created = await api("/api/projects", { method: "POST", json: data });
+      state.scopes.projectIds = [...new Set([...state.scopes.projectIds, created.id])];
+    }
+    $("project-modal").close();
+    await refreshLibrary();
+  } catch (error) {
+    setError("project", error.message);
+  }
+});
 
 function growQuestion() {
   const box = $("question");
@@ -704,7 +852,8 @@ $("composer").addEventListener("submit", async (event) => {
       json: {
         message,
         mode,
-        project_id: state.projectId || null,
+        project_id: state.scopes.projectIds.length === 1 ? state.scopes.projectIds[0] : null,
+        scopes: { global: state.scopes.global, project_ids: state.scopes.projectIds },
         conversation_id: state.conversationId,
         document_ids: state.mentions.map((item) => item.id),
       },

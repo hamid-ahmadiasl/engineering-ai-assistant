@@ -29,10 +29,20 @@ def _tokens(query: str) -> list[str]:
     return found[:12]
 
 
-def lexical_search(db: Session, query: str, *, scope: str, project_id: str | None, k: int) -> list[Chunk]:
+def lexical_search(
+    db: Session,
+    query: str,
+    *,
+    scope: str,
+    project_id: str | None,
+    k: int,
+    owner_id: str | None = None,
+) -> list[Chunk]:
     tokens = _tokens(query)
     if not tokens:
         return []
+    if scope == "personal":
+        return _like_search(db, tokens, scope=scope, project_id=None, k=k, owner_id=owner_id)
     dialect = db.bind.dialect.name if db.bind is not None else "sqlite"
     if dialect == "sqlite":
         and_hits = (
@@ -89,9 +99,19 @@ def _fts(db: Session, tokens: list[str], *, scope: str, project_id: str | None, 
     return chunks
 
 
-def _like_search(db: Session, tokens: list[str], *, scope: str, project_id: str | None, k: int) -> list[Chunk]:
+def _like_search(
+    db: Session,
+    tokens: list[str],
+    *,
+    scope: str,
+    project_id: str | None,
+    k: int,
+    owner_id: str | None = None,
+) -> list[Chunk]:
     stmt = select(Chunk).where(Chunk.scope == scope)
-    if project_id is not None:
+    if scope == "personal":
+        stmt = stmt.where(Chunk.owner_id == owner_id)
+    elif project_id is not None:
         stmt = stmt.where(Chunk.project_id == project_id)
     else:
         stmt = stmt.where(Chunk.project_id.is_(None))
@@ -107,8 +127,16 @@ def _like_search(db: Session, tokens: list[str], *, scope: str, project_id: str 
     return rows[:k]
 
 
-def vector_search(query: str, *, scope: str, project_id: str | None, k: int, db: Session) -> list[Chunk]:
-    hits = get_store().query(scope_key(scope, project_id), query, k)
+def vector_search(
+    query: str,
+    *,
+    scope: str,
+    project_id: str | None,
+    k: int,
+    db: Session,
+    owner_id: str | None = None,
+) -> list[Chunk]:
+    hits = get_store().query(scope_key(scope, project_id, owner_id), query, k)
     if not hits:
         return []
     ids = [hit["id"] for hit in hits]
@@ -116,6 +144,8 @@ def vector_search(query: str, *, scope: str, project_id: str | None, k: int, db:
     # Defend the boundary even if a store was mis-filed.
     if scope == "global":
         chunks = [c for c in chunks if c.scope == "global" and not c.project_id]
+    elif scope == "personal":
+        chunks = [c for c in chunks if c.scope == "personal" and c.owner_id == owner_id]
     else:
         chunks = [c for c in chunks if c.project_id == project_id]
     order = {cid: index for index, cid in enumerate(ids)}
@@ -140,14 +170,21 @@ def retrieve(
     project_id: str | None,
     k: int = 8,
     document_ids: list[str] | None = None,
+    project_ids: list[str] | None = None,
+    include_global: bool = True,
+    owner_id: str | None = None,
 ) -> list[Chunk]:
-    rankings = [
-        lexical_search(db, query, scope="global", project_id=None, k=k),
-        vector_search(query, scope="global", project_id=None, k=k, db=db),
-    ]
-    if project_id:
-        rankings.insert(0, lexical_search(db, query, scope="project", project_id=project_id, k=k))
-        rankings.insert(1, vector_search(query, scope="project", project_id=project_id, k=k, db=db))
+    rankings: list[list[Chunk]] = []
+    if include_global:
+        rankings.append(lexical_search(db, query, scope="global", project_id=None, k=k))
+        rankings.append(vector_search(query, scope="global", project_id=None, k=k, db=db))
+        if owner_id:
+            rankings.append(lexical_search(db, query, scope="personal", project_id=None, k=k, owner_id=owner_id))
+            rankings.append(vector_search(query, scope="personal", project_id=None, k=k, db=db, owner_id=owner_id))
+    selected = project_ids if project_ids is not None else ([project_id] if project_id else [])
+    for pid in selected:
+        rankings.append(lexical_search(db, query, scope="project", project_id=pid, k=k))
+        rankings.append(vector_search(query, scope="project", project_id=pid, k=k, db=db))
     fused = reciprocal_rank_fusion(rankings, k=k)
     if not document_ids:
         return fused

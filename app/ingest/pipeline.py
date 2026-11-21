@@ -102,6 +102,7 @@ def ingest_path(
                 title=document.title,
                 filename=document.filename,
                 corpus_label=document.corpus_label,
+                owner_id=merged.get("owner_id") or (uploaded_by if scope == "personal" else None),
             )
         )
     db.add_all(chunk_rows)
@@ -131,7 +132,7 @@ def ingest_path(
         )
 
     if chunk_rows:
-        key = scope_key(scope, project_id)
+        key = scope_key(scope, project_id, merged.get("owner_id") or uploaded_by)
         embeddings = embed_texts([c.text for c in chunk_rows])
         get_store().upsert(
             key,
@@ -171,7 +172,10 @@ def delete_document(db: Session, document: Document) -> None:
     chunks = list(db.scalars(select(Chunk).where(Chunk.document_id == document.id)))
     ids = [c.id for c in chunks]
     if ids:
-        get_store().delete_ids(scope_key(document.scope, document.project_id), ids)
+        get_store().delete_ids(
+            scope_key(document.scope, document.project_id, document.uploaded_by),
+            ids,
+        )
     for chunk in chunks:
         db.delete(chunk)
     for claim in db.scalars(select(Claim).where(Claim.document_id == document.id)):

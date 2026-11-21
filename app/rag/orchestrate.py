@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.models import Chunk, Claim, Project
 from app.rag.answer import answer_from_evidence
 from app.rag.language import retrieval_text
-from app.rag.precedence import compare_claims, filter_parameters, named_conflicts
+from app.rag.precedence import compare_claims, filter_parameters, named_conflicts, separate_project_notes
 from app.rag.retrieve import retrieve
 
 TROUBLE_WORDS = (
@@ -51,6 +51,38 @@ def _chunks_for_clauses(db: Session, project_id: str, pairs: list[tuple[str, str
     return found
 
 
+def _project_conflicts(db: Session, project: Project, message: str, query: str, resolved: str, document_ids: list[str] | None):
+    claims = list(db.scalars(select(Claim).where(Claim.project_id == project.id)))
+    if document_ids:
+        allowed_docs = set(document_ids)
+        claims = [claim for claim in claims if claim.document_id in allowed_docs]
+    rules = ""
+    if project.precedence_json:
+        try:
+            rules = json.loads(project.precedence_json).get("summary", "")
+        except json.JSONDecodeError:
+            rules = ""
+    found = compare_claims(claims, rules)
+    searchable = f"{message}\n{query}"
+    named = named_conflicts(searchable, found)
+    broad = resolved == "compare" or any(
+        word in searchable.lower() for word in ("compare", "conflict", "deviation", "governs", "مقایسه", "حاکم")
+    )
+    if broad:
+        chosen = named or filter_parameters(message, found)
+    else:
+        chosen = [item for item in named if item.status != "aligned"] or named
+    cards = []
+    if chosen:
+        cards = [item.as_dict() for item in chosen if item.status != "aligned"]
+        if broad and not cards:
+            cards = [item.as_dict() for item in chosen]
+        for card in cards:
+            card["project_id"] = project.id
+            card["project_code"] = project.code
+    return chosen, cards
+
+
 def run_query(
     db: Session,
     *,
@@ -58,54 +90,58 @@ def run_query(
     message: str,
     mode: str | None,
     document_ids: list[str] | None = None,
+    projects: list[Project] | None = None,
+    include_global: bool | None = None,
+    owner_id: str | None = None,
 ) -> dict:
     resolved = classify(message, mode)
-    project_id = project.id if project else None
+    selected = projects if projects is not None else ([project] if project else [])
+    if include_global is None:
+        include_global = True
     query = retrieval_text(message)
     if resolved == "troubleshoot":
         query = query + " troubleshooting considerations limitations operating window leak gasket"
-    chunks = retrieve(db, query, project_id, k=8, document_ids=document_ids)
+    chunks = retrieve(
+        db,
+        query,
+        selected[0].id if selected else None,
+        k=8,
+        document_ids=document_ids,
+        project_ids=[item.id for item in selected],
+        include_global=include_global,
+        owner_id=owner_id if include_global else None,
+    )
 
     conflicts: list[dict] = []
-    if project is not None and resolved in {"compare", "qa", "troubleshoot"}:
-        claims = list(db.scalars(select(Claim).where(Claim.project_id == project.id)))
-        if document_ids:
-            allowed_docs = set(document_ids)
-            claims = [claim for claim in claims if claim.document_id in allowed_docs]
-        rules = ""
-        if project.precedence_json:
-            try:
-                payload = json.loads(project.precedence_json)
-                rules = payload.get("summary", "")
-            except json.JSONDecodeError:
-                rules = ""
-        found = compare_claims(claims, rules)
-        searchable = f"{message}\n{query}"
-        named = named_conflicts(searchable, found)
-        broad = resolved == "compare" or any(
-            word in searchable.lower() for word in ("compare", "conflict", "deviation", "governs", "مقایسه", "حاکم")
-        )
-        if broad:
-            chosen = named or filter_parameters(message, found)
-        else:
-            chosen = [item for item in named if item.status != "aligned"] or named
-        if chosen:
-            conflicts = [item.as_dict() for item in chosen if item.status != "aligned"]
-            if broad and not conflicts:
-                conflicts = [item.as_dict() for item in chosen]
-            pairs = [(obs.document, obs.clause) for item in chosen for obs in item.observed]
-            extra = _chunks_for_clauses(db, project.id, pairs)
-            if document_ids:
-                allowed_docs = set(document_ids)
-                extra = [chunk for chunk in extra if chunk.document_id in allowed_docs]
-            have = {c.id for c in chunks}
-            for chunk in extra:
-                if chunk.id not in have:
-                    chunks.insert(0, chunk)
-                    have.add(chunk.id)
-            chunks = chunks[:12]
+    grouped: list[tuple[str, list]] = []
+    if resolved in {"compare", "qa", "troubleshoot"}:
+        for item in selected:
+            chosen, cards = _project_conflicts(db, item, message, query, resolved, document_ids)
+            grouped.append((item.code, chosen))
+            conflicts.extend(cards)
+            if chosen:
+                pairs = [(obs.document, obs.clause) for conflict in chosen for obs in conflict.observed]
+                extra = _chunks_for_clauses(db, item.id, pairs)
+                if document_ids:
+                    allowed_docs = set(document_ids)
+                    extra = [chunk for chunk in extra if chunk.document_id in allowed_docs]
+                have = {chunk.id for chunk in chunks}
+                for chunk in extra:
+                    if chunk.id not in have:
+                        chunks.insert(0, chunk)
+                        have.add(chunk.id)
+        chunks = chunks[:12]
+        conflicts.extend(separate_project_notes(grouped))
 
     result = answer_from_evidence(resolved, message, chunks, conflicts)
-    result["project_id"] = project_id
-    result["project_code"] = project.code if project else None
+    codes = {item.id: item.code for item in selected}
+    for citation in result.get("citations") or []:
+        if citation.get("store") in {"global", "personal"}:
+            citation["store_label"] = "General"
+        else:
+            citation["store_label"] = codes.get(citation.get("project_id") or "", citation.get("store") or "")
+    result["project_id"] = selected[0].id if len(selected) == 1 else None
+    result["project_code"] = selected[0].code if len(selected) == 1 else None
+    result["project_ids"] = [item.id for item in selected]
+    result["include_global"] = include_global
     return result

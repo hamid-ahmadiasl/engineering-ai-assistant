@@ -278,6 +278,39 @@ def _explain(parameter: str, governing: Observed, observed: list[Observed], stat
     return why, implication.strip()
 
 
+def separate_project_notes(groups: list[tuple[str, list[Conflict]]]) -> list[dict]:
+    """Same parameter in two projects is not one hierarchy. Say so instead of picking a winner."""
+    by_parameter: dict[str, list[tuple[str, Conflict]]] = {}
+    for code, conflicts in groups:
+        for conflict in conflicts:
+            if conflict.governing is None:
+                continue
+            by_parameter.setdefault(conflict.parameter, []).append((code, conflict))
+    notes = []
+    for parameter, items in by_parameter.items():
+        if len({code for code, _ in items}) < 2:
+            continue
+        values = {_norm(conflict.governing.value) for _, conflict in items if conflict.governing}
+        if len(values) < 2:
+            continue
+        label = items[0][1].label
+        notes.append(
+            {
+                "parameter": parameter,
+                "label": label,
+                "label_fa": LABELS_FA.get(parameter, label),
+                "status": "separate",
+                "governing": None,
+                "observed": [],
+                "why": "These values come from different projects, not a conflict.",
+                "implication": " · ".join(
+                    f"{code}: {conflict.governing.value}" for code, conflict in items if conflict.governing
+                ),
+            }
+        )
+    return notes
+
+
 def named_conflicts(question: str, conflicts: list[Conflict]) -> list[Conflict]:
     """Conflicts whose parameter is actually named in the question."""
     text = normalize_persian(question).lower()

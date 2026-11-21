@@ -65,6 +65,14 @@ def assert_read(db: Session, project: Project, user: User) -> None:
         raise HTTPException(status_code=403, detail="You do not have access to that project.")
 
 
+def assert_owner(db: Session, project: Project, user: User) -> None:
+    if user.role == "admin":
+        return
+    row = membership(db, project, user)
+    if row is None or row.role != "owner":
+        raise HTTPException(status_code=403, detail="Only the project owner can change or delete it.")
+
+
 def assert_write(db: Session, project: Project, user: User) -> None:
     if user.is_anonymous or user.plan == "trial":
         raise HTTPException(

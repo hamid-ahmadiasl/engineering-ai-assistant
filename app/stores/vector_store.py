@@ -39,7 +39,9 @@ class AppEmbedding(EmbeddingFunction[Documents]):
         return AppEmbedding()
 
 
-def scope_key(scope: str, project_id: str | None) -> str:
+def scope_key(scope: str, project_id: str | None, owner_id: str | None = None) -> str:
+    if scope == "personal":
+        return f"personal_{owner_id or project_id or 'none'}"
     if scope == "global" or not project_id:
         return "global"
     return f"project_{project_id}"
