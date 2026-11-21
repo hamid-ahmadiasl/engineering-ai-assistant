@@ -92,69 +92,8 @@
         </div>
       </div>
       <div id="drive-pill" class="drive-pill" hidden></div>
-      <section id="standards-section">
-        <header><h2 data-i18n="codesStandards">Codes &amp; Standards</h2></header>
-        <p class="hint" data-i18n="codesHint">Licensed codes for this project only, such as ASME VIII or TEMA. They stay out of the global notes.</p>
-        <p id="drive-hint" class="hint" hidden data-i18n="driveHint">Connect your own Google Drive before uploading. Files stay in your Drive until you delete them.</p>
-        <ul id="standard-docs" class="doc-list"></ul>
-        <details class="uploader">
-          <summary data-i18n="addStandard">Add code or standard</summary>
-        <form id="standard-form" class="upload">
-          <input name="file" type="file" accept=".pdf,.xlsx,.xlsm,.txt,.md,.csv,.png,.jpg,.jpeg,.tif,.tiff" />
-          <label><span data-i18n="standardName">Standard name</span> <input name="standard_name" type="text" maxlength="200" data-i18n-placeholder="standardNamePlaceholder" placeholder="ASME VIII" /></label>
-          <div class="upload-fields">
-            <label><span data-i18n="editionYear">Edition / year</span> <input name="edition" type="text" maxlength="40" placeholder="2023" /></label>
-            <label><span data-i18n="partDivision">Part / division</span> <input name="part" type="text" maxlength="40" data-i18n-placeholder="partPlaceholder" placeholder="Div. 1" /></label>
-          </div>
-          <button class="primary" type="submit" data-i18n="addStandard">Add code or standard</button>
-          <p class="form-error" data-for="standard"></p>
-        </form>
-        </details>
-      </section>
-      <section id="documents-section">
-        <header><h2 data-i18n="projectDocs">Project documents</h2></header>
-        <ul id="project-docs" class="doc-list"></ul>
-        <details class="uploader">
-          <summary data-i18n="addDoc">Add to this project</summary>
-        <form id="upload-form" class="upload">
-          <p class="hint" data-i18n="uploadHint">PDF or Excel. State the revision so citations can carry it.</p>
-          <input id="file" name="file" type="file" accept=".pdf,.xlsx,.xlsm,.txt,.md,.csv,.png,.jpg,.jpeg,.tif,.tiff" />
-          <div class="upload-fields">
-            <label><span data-i18n="type">Type</span>
-              <select name="doc_type">
-                <option value="project_spec" data-i18n="spec">Project specification</option>
-                <option value="datasheet" data-i18n="datasheet">Datasheet</option>
-                <option value="vendor" data-i18n="vendor">Vendor document</option>
-                <option value="requisition" data-i18n="requisition">Requisition</option>
-                <option value="upload" data-i18n="otherFile">Other project file</option>
-              </select>
-            </label>
-            <label><span data-i18n="revision">Revision</span> <input name="revision" type="text" maxlength="40" placeholder="C" /></label>
-          </div>
-          <button class="primary" type="submit" data-i18n="addDoc">Add to this project</button>
-          <p class="form-error" data-for="upload"></p>
-        </form>
-        </details>
-      </section>
-      <section id="general-library" hidden>
-        <header><h2 data-i18n="generalLibrary">General library</h2></header>
-        <p class="hint" data-i18n="generalHint">Your own reference files. Only you see them, and only when General is selected.</p>
-        <ul id="library-docs" class="doc-list"></ul>
-        <details class="uploader">
-          <summary data-i18n="addGeneral">Add a general file</summary>
-          <form id="library-form" class="upload">
-            <input name="file" type="file" accept=".pdf,.xlsx,.xlsm,.txt,.md,.csv,.png,.jpg,.jpeg,.tif,.tiff" />
-            <label><span data-i18n="standardName">Title</span> <input name="title" type="text" maxlength="200" /></label>
-            <button class="primary" type="submit" data-i18n="addGeneral">Add a general file</button>
-            <p class="form-error" data-for="library"></p>
-          </form>
-        </details>
-      </section>
-      <section>
-        <header><h2 data-i18n="globalNotes">Global knowledge notes</h2></header>
-        <p class="hint" data-i18n="globalHint">Shared across projects. The shipped notes are original demo text, not licensed codes.</p>
-        <ul id="kb-docs" class="doc-list"></ul>
-      </section>
+      <p id="drive-hint" class="hint" hidden data-i18n="driveHint">Connect your own Google Drive before uploading. Files stay in your Drive until you delete them.</p>
+      <div id="library-sections"></div>
     </aside>
     <div id="split-side" class="splitter" role="separator" aria-orientation="vertical" aria-label="Resize library" tabindex="0"></div>
 

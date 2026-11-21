@@ -199,6 +199,14 @@ textarea { resize: vertical; }
 .scope-row label { display: flex; flex-direction: row; align-items: center; gap: 0.5rem; margin: 0; min-width: 0; flex: 1; text-transform: none; letter-spacing: 0; font-size: 0.88rem; }
 .scope-row input { width: 1rem; height: 1rem; margin: 0; flex: none; accent-color: var(--accent); }
 .scope-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scope-group { margin-top: 0.8rem; border: 1px solid var(--line); border-radius: 14px; padding: 0.35rem 0.55rem 0.6rem; }
+.scope-group summary, .folder-head { font-weight: 650; cursor: pointer; }
+.scope-group h3 { margin: 0.7rem 0 0.3rem; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.scope-folders { margin: 0 0 0.35rem; }
+.folder-block { margin-top: 0.35rem; }
+.folder-head, .folder-drop { border-radius: 10px; }
+.folder-head { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; }
+.mention-group { padding: 0.35rem 0.7rem 0.1rem; font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .scope-actions { display: flex; flex: none; gap: 0.15rem; }
 .scope-actions button { width: 28px; height: 28px; padding: 0; display: grid; place-items: center; }
 dialog { border: 1px solid var(--line); border-radius: 16px; background: var(--panel-solid); color: var(--ink); width: min(440px, 92vw); padding: 1rem; box-shadow: var(--shadow); }

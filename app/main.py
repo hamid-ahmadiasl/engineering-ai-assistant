@@ -47,7 +47,7 @@ from app.config import get_settings
 from app.credits import charge_or_http, ensure_period, quota_detail, reset_balance, set_plan, top_up
 from app.db import get_db, init_db, session_scope
 from app.ingest.pipeline import ALLOWED_SUFFIXES, delete_document, ingest_path
-from app.models import AccessCode, Conversation, Document, Membership, Message, Project, UsageEvent, User, utcnow
+from app.models import AccessCode, Conversation, Document, Folder, Membership, Message, Project, UsageEvent, User, utcnow
 from app.rag.llm import llm_check
 from app.rag.orchestrate import run_query
 from app.seed.bootstrap import bootstrap_admin, seed_demo
@@ -139,6 +139,20 @@ class ScopesIn(BaseModel):
     model_config = {"populate_by_name": True}
     include_global: bool = Field(default=True, alias="global")
     project_ids: list[str] = []
+    folders: dict[str, list[str]] = {}
+
+
+class FolderIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    parent_id: str | None = None
+
+
+class FolderPatch(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+class DocumentMove(BaseModel):
+    folder_id: str | None = None
 
 
 class ChatIn(BaseModel):
@@ -204,6 +218,7 @@ def _public_document(doc: Document) -> dict:
         "edition": doc.edition,
         "scope": doc.scope,
         "project_id": doc.project_id,
+        "folder_id": getattr(doc, "folder_id", None) or "",
         "page_count": doc.page_count,
         "corpus_label": doc.corpus_label,
         "status": doc.status,
@@ -417,6 +432,129 @@ def remove_project(project_id: str, user: User = Depends(current_user), db: Sess
     return {"ok": True}
 
 
+def _public_folder(folder: Folder) -> dict:
+    return {
+        "id": folder.id,
+        "project_id": folder.project_id,
+        "parent_id": folder.parent_id,
+        "name": folder.name,
+    }
+
+
+def _folder_parent_ok(db: Session, project_id: str, parent_id: str | None) -> None:
+    if not parent_id:
+        return
+    parent = db.get(Folder, parent_id)
+    if parent is None or parent.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Folder not found.")
+    if parent.parent_id:
+        raise HTTPException(status_code=400, detail="Folders can only be nested two levels deep.")
+
+
+@app.get("/api/projects/{project_id}/folders")
+def list_folders(project_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    project = get_project(db, project_id)
+    assert_read(db, project, user)
+    rows = db.scalars(select(Folder).where(Folder.project_id == project.id).order_by(Folder.name)).all()
+    return {"folders": [_public_folder(row) for row in rows]}
+
+
+@app.post("/api/projects/{project_id}/folders")
+def create_folder(
+    project_id: str,
+    body: FolderIn,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    project = get_project(db, project_id)
+    assert_write(db, project, user)
+    _folder_parent_ok(db, project.id, body.parent_id)
+    folder = Folder(
+        id=str(uuid.uuid4()),
+        project_id=project.id,
+        parent_id=body.parent_id,
+        name=body.name.strip(),
+        created_at=utcnow(),
+    )
+    db.add(folder)
+    db.flush()
+    return _public_folder(folder)
+
+
+@app.patch("/api/folders/{folder_id}")
+def rename_folder(
+    folder_id: str,
+    body: FolderPatch,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    folder = db.get(Folder, folder_id)
+    if folder is None:
+        raise HTTPException(status_code=404, detail="Folder not found.")
+    assert_write(db, get_project(db, folder.project_id), user)
+    folder.name = body.name.strip()
+    return _public_folder(folder)
+
+
+@app.delete("/api/folders/{folder_id}")
+def remove_folder(
+    folder_id: str,
+    force: bool = False,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    folder = db.get(Folder, folder_id)
+    if folder is None:
+        raise HTTPException(status_code=404, detail="Folder not found.")
+    assert_write(db, get_project(db, folder.project_id), user)
+    rows = list(db.scalars(select(Folder).where(Folder.project_id == folder.project_id)))
+    children: dict[str | None, list[Folder]] = {}
+    for row in rows:
+        children.setdefault(row.parent_id, []).append(row)
+    doomed = []
+    stack = [folder.id]
+    while stack:
+        current = stack.pop()
+        doomed.append(current)
+        stack.extend(item.id for item in children.get(current, []))
+    docs = list(db.scalars(select(Document).where(Document.folder_id.in_(doomed))))
+    if (len(doomed) > 1 or docs) and not force:
+        raise HTTPException(status_code=409, detail="Folder is not empty.")
+    for document in docs:
+        document.folder_id = folder.parent_id
+    for row in rows:
+        if row.id in doomed:
+            db.delete(row)
+    return {"ok": True}
+
+
+def _expand_folders(db: Session, project_id: str, folder_ids: list[str]) -> set[str]:
+    rows = list(db.scalars(select(Folder).where(Folder.project_id == project_id)))
+    children: dict[str | None, list[str]] = {}
+    for row in rows:
+        children.setdefault(row.parent_id, []).append(row.id)
+    expanded: set[str] = set()
+    stack = [folder_id for folder_id in folder_ids if folder_id]
+    while stack:
+        current = stack.pop()
+        if current in expanded:
+            continue
+        expanded.add(current)
+        stack.extend(children.get(current, []))
+    return expanded
+
+
+def _documents_in_folders(db: Session, project_id: str, folder_ids: list[str]) -> set[str]:
+    expanded = _expand_folders(db, project_id, folder_ids)
+    if not expanded:
+        return set()
+    return set(
+        db.scalars(
+            select(Document.id).where(Document.project_id == project_id, Document.folder_id.in_(expanded))
+        )
+    )
+
+
 _YEAR = re.compile(r"(?:19|20)\d{2}")
 
 
@@ -527,6 +665,7 @@ def _keep_original(
     data: bytes,
     doc_type: str,
     scope: str,
+    folder_names: list[str] | None = None,
 ) -> tuple[Path, dict]:
     """Save the original in the uploader's Drive, or on local disk when Drive is off."""
     from app.drive import (
@@ -551,7 +690,7 @@ def _keep_original(
     elif project is None:
         folders = [ROOT_FOLDER, GLOBAL_FOLDER]
     else:
-        folders = [ROOT_FOLDER, project.code, section_folder(doc_type, scope)]
+        folders = [ROOT_FOLDER, project.code, section_folder(doc_type, scope), *(folder_names or [])]
     if not settings.google_configured:
         return local("")
     token = decrypt_token(user.drive_refresh_token or "")
@@ -625,6 +764,7 @@ async def upload_project_document(
     edition: str = Form(""),
     standard_name: str = Form(""),
     part: str = Form(""),
+    folder_id: str = Form(""),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -633,6 +773,13 @@ async def upload_project_document(
     rate_limit(db, f"upload:{user.id}", 30, hours=1)
     filename, data = _original_bytes(file)
     assert_upload_allowed(db, user, len(data))
+    chosen_folder = (folder_id or "").strip() or None
+    if chosen_folder and (doc_type or "").strip().lower() != "standard":
+        folder = db.get(Folder, chosen_folder)
+        if folder is None or folder.project_id != project.id:
+            raise HTTPException(status_code=404, detail="Folder not found.")
+    else:
+        chosen_folder = None
     path, stored = _keep_original(
         user,
         project=project,
@@ -640,6 +787,7 @@ async def upload_project_document(
         data=data,
         doc_type=doc_type,
         scope="project",
+        folder_names=_folder_path_names(db, chosen_folder) if chosen_folder else None,
     )
     try:
         document = ingest_path(
@@ -664,6 +812,47 @@ async def upload_project_document(
             _remove_drive_file(db, document_stub)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     _apply_storage(document, stored)
+    if chosen_folder:
+        document.folder_id = chosen_folder
+    return _public_document(document)
+
+
+def _folder_path_names(db: Session, folder_id: str | None) -> list[str]:
+    names: list[str] = []
+    current = folder_id
+    seen: set[str] = set()
+    while current and current not in seen:
+        seen.add(current)
+        folder = db.get(Folder, current)
+        if folder is None:
+            break
+        names.append(folder.name)
+        current = folder.parent_id
+    names.reverse()
+    return names
+
+
+@app.patch("/api/projects/{project_id}/documents/{document_id}")
+def move_document(
+    project_id: str,
+    document_id: str,
+    body: DocumentMove,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    project = get_project(db, project_id)
+    assert_write(db, project, user)
+    document = db.get(Document, document_id)
+    if document is None or document.project_id != project.id:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if document.doc_type == "standard":
+        raise HTTPException(status_code=400, detail="Codes and standards stay in their own section.")
+    target = (body.folder_id or "").strip() or None
+    if target:
+        folder = db.get(Folder, target)
+        if folder is None or folder.project_id != project.id:
+            raise HTTPException(status_code=404, detail="Folder not found.")
+    document.folder_id = target
     return _public_document(document)
 
 
@@ -827,6 +1016,13 @@ def chat(body: ChatIn, request: Request, user: User = Depends(current_user), db:
     project = projects[0] if len(projects) == 1 else None
     charge_or_http(db, user, settings.credit_cost_per_query, "chat", body.message[:240])
     mentioned = _mentioned_documents(db, user, project, body.document_ids)
+    folder_documents = None
+    if body.scopes is not None and body.scopes.folders:
+        folder_documents = {}
+        for item in projects:
+            chosen = body.scopes.folders.get(item.id) or []
+            if chosen:
+                folder_documents[item.id] = _documents_in_folders(db, item.id, chosen)
     result = run_query(
         db,
         project=project,
@@ -836,6 +1032,7 @@ def chat(body: ChatIn, request: Request, user: User = Depends(current_user), db:
         message=body.message.strip(),
         mode=body.mode,
         document_ids=mentioned,
+        folder_documents=folder_documents,
     )
     conversation = None
     if body.conversation_id:

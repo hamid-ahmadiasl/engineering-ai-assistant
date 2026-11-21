@@ -173,6 +173,7 @@ def retrieve(
     project_ids: list[str] | None = None,
     include_global: bool = True,
     owner_id: str | None = None,
+    folder_documents: dict[str, set[str]] | None = None,
 ) -> list[Chunk]:
     rankings: list[list[Chunk]] = []
     if include_global:
@@ -186,6 +187,12 @@ def retrieve(
         rankings.append(lexical_search(db, query, scope="project", project_id=pid, k=k))
         rankings.append(vector_search(query, scope="project", project_id=pid, k=k, db=db))
     fused = reciprocal_rank_fusion(rankings, k=k)
+    if folder_documents:
+        fused = [
+            chunk
+            for chunk in fused
+            if chunk.project_id not in folder_documents or chunk.document_id in folder_documents[chunk.project_id]
+        ]
     if not document_ids:
         return fused
     allowed = {doc_id for doc_id in document_ids if doc_id}

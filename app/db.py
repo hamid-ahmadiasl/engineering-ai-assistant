@@ -146,6 +146,7 @@ def init_db() -> None:
         _ensure_column(conn, "documents", "storage", "VARCHAR(20) DEFAULT ''")
         _ensure_column(conn, "projects", "equipment", "VARCHAR(120) DEFAULT ''")
         _ensure_column(conn, "chunks", "owner_id", "VARCHAR(36)")
+        _ensure_column(conn, "documents", "folder_id", "VARCHAR(36)")
     if str(engine.url).startswith("sqlite"):
         with engine.begin() as conn:
             conn.execute(text(FTS_SQL))

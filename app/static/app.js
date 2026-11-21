@@ -4,7 +4,8 @@ const state = {
   projects: [],
   projectId: sessionStorage.getItem("eai_project") || "",
   conversationId: null,
-  scopes: JSON.parse(localStorage.getItem("eai_scopes") || "null") || { global: true, projectIds: [], fresh: true },
+  scopes: JSON.parse(localStorage.getItem("eai_scopes") || "null") || { global: true, projectIds: [], folders: {}, fresh: true },
+  folders: {},
   editingProject: null,
   lastAnswer: null,
   library: [],
@@ -101,9 +102,7 @@ function renderUser() {
   $("credits").textContent = t("credits", { n: credits.balance ?? "—", plan: user.plan });
   $("open-admin").hidden = user.role !== "admin";
   const locked = user.is_anonymous || user.plan === "trial";
-  $("upload-form").hidden = locked;
-  $("standard-form").hidden = locked;
-  $("library-form").hidden = locked;
+  state.uploadsLocked = locked;
   $("new-project").hidden = locked;
   refreshDrive();
 }
@@ -205,16 +204,21 @@ function placeScopeMenu() {
   if (!button || !menu || menu.hidden) return;
   if (menu.parentElement !== document.body) document.body.appendChild(menu);
   const rect = button.getBoundingClientRect();
+  const library = document.querySelector(".library");
+  const edge = library ? library.getBoundingClientRect() : rect;
   const width = Math.min(340, window.innerWidth - 16);
-  menu.style.top = `${Math.min(rect.bottom + 6, window.innerHeight - 16)}px`;
-  menu.style.width = `${Math.max(rect.width, Math.min(width, 320))}px`;
+  menu.style.width = `${width}px`;
   const rtl = document.documentElement.dir === "rtl";
+  const beside = window.innerWidth > 980;
+  menu.style.top = `${Math.max(8, Math.min(beside ? rect.top : rect.bottom + 6, window.innerHeight - 24))}px`;
   if (rtl) {
     menu.style.left = "auto";
-    menu.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
+    const right = beside ? window.innerWidth - edge.left + 8 : window.innerWidth - rect.right;
+    menu.style.right = `${Math.max(8, right)}px`;
   } else {
     menu.style.right = "auto";
-    menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
+    const left = beside ? edge.right + 8 : rect.left;
+    menu.style.left = `${Math.max(8, Math.min(left, window.innerWidth - width - 8))}px`;
   }
 }
 
@@ -273,26 +277,32 @@ function renderScope() {
   }));
   for (const project of state.projects) {
     const text = projectCaption(project);
-    menu.appendChild(scopeRow({
+    const block = document.createElement("div");
+    block.appendChild(scopeRow({
       checked: state.scopes.projectIds.includes(project.id),
       text,
       onToggle: () => toggleProject(project.id),
       actions: project.role === "owner" || project.role === "admin" ? project : null,
     }));
+    if (state.scopes.projectIds.includes(project.id)) block.appendChild(folderScopeList(project));
+    menu.appendChild(block);
   }
   const empty = !state.projects.length;
   $("no-projects").hidden = !empty;
   const chatEmpty = $("chat-empty-project");
   if (chatEmpty) chatEmpty.hidden = !empty;
-  $("general-library").hidden = !state.scopes.global;
-  $("standards-section").hidden = !state.scopes.projectIds.length;
-  $("documents-section").hidden = !state.scopes.projectIds.length;
-  $("scope-button").textContent = chips.children.length ? t("chooseScopes") : t("chooseScopes");
+  $("scope-button").textContent = t("chooseScopes");
 }
 
 async function refreshLibrary() {
   const [projects, kb] = await Promise.all([api("/api/projects"), api("/api/kb/documents")]);
   state.projects = projects.projects;
+  const folderLists = await Promise.all(state.projects.map(async (project) => {
+    const payload = await api(`/api/projects/${project.id}/folders`);
+    return [project.id, payload.folders];
+  }));
+  state.folders = Object.fromEntries(folderLists);
+  if (!state.scopes.folders) state.scopes.folders = {};
   if (state.scopes.fresh) {
     const demo = state.projects.find((project) => project.code === "HX-2201");
     if (demo && !state.scopes.projectIds.length) state.scopes.projectIds = [demo.id];
@@ -302,47 +312,233 @@ async function refreshLibrary() {
   await renderDocs(kb.documents);
 }
 
-async function renderDocs(kbDocuments) {
-  const kb = $("kb-docs");
-  kb.innerHTML = "";
-  const globalDocs = state.scopes.global ? kbDocuments.map((doc) => ({ ...doc, scope: doc.scope || "global" })) : [];
-  for (const doc of globalDocs) kb.appendChild(docItem(doc, false));
-  const libraryHost = $("library-docs");
-  libraryHost.innerHTML = "";
-  let personal = [];
-  if (state.scopes.global && state.user && !state.user.is_anonymous) {
-    personal = (await api("/api/library/documents")).documents.map((doc) => ({ ...doc, scope: "personal" }));
-    if (!personal.length) libraryHost.innerHTML = `<li><span>${t("noProjectFiles")}</span></li>`;
-    for (const doc of personal) libraryHost.appendChild(docItem(doc, true));
+function folderScopeList(project) {
+  const box = document.createElement("div");
+  box.className = "scope-folders";
+  const folders = state.folders[project.id] || [];
+  const picked = state.scopes.folders && state.scopes.folders[project.id];
+  const add = (folder, depth) => {
+    const row = scopeRow({
+      checked: !picked || picked.includes(folder.id),
+      text: folder.name,
+      onToggle: () => toggleFolder(project.id, folder.id),
+    });
+    row.style.paddingInlineStart = `${0.6 + depth * 0.8}rem`;
+    box.appendChild(row);
+    folders.filter((item) => item.parent_id === folder.id).forEach((child) => add(child, depth + 1));
+  };
+  folders.filter((item) => !item.parent_id).forEach((folder) => add(folder, 0));
+  if (!folders.length) {
+    const note = document.createElement("p");
+    note.className = "hint";
+    note.textContent = t("noFolders");
+    box.appendChild(note);
   }
-  const standards = $("standard-docs");
-  const list = $("project-docs");
-  standards.innerHTML = "";
-  list.innerHTML = "";
-  const chosen = selectedProjects();
-  if (!chosen.length) {
-    state.library = [...personal, ...globalDocs];
-    return;
+  return box;
+}
+
+function toggleFolder(projectId, folderId) {
+  const folders = state.folders[projectId] || [];
+  const all = folders.map((folder) => folder.id);
+  const current = state.scopes.folders?.[projectId];
+  let selected = current ? [...current] : [...all];
+  if (selected.includes(folderId)) selected = selected.filter((id) => id !== folderId);
+  else selected.push(folderId);
+  if (!state.scopes.folders) state.scopes.folders = {};
+  if (!selected.length || selected.length === all.length) delete state.scopes.folders[projectId];
+  else state.scopes.folders[projectId] = selected;
+  saveScopes();
+  refreshLibrary();
+}
+
+function docList(docs, canDelete) {
+  const list = document.createElement("ul");
+  list.className = "doc-list";
+  if (!docs.length) {
+    const empty = document.createElement("li");
+    empty.innerHTML = `<span>${t("noProjectFiles")}</span>`;
+    list.appendChild(empty);
+    return list;
   }
-  const projectDocs = [];
-  const standardDocs = [];
-  for (const project of chosen) {
-    const data = await api(`/api/projects/${project.id}/documents`);
-    for (const doc of data.documents) {
-      const labeled = chosen.length > 1 ? { ...doc, title: `${project.code} · ${doc.title}` } : doc;
-      if (doc.doc_type === "standard") standardDocs.push(labeled);
-      else projectDocs.push(labeled);
+  for (const doc of docs) list.appendChild(docItem(doc, canDelete));
+  return list;
+}
+
+function uploadForm(kind, projectId, folderId) {
+  const form = document.createElement("form");
+  form.className = "upload";
+  form.dataset.kind = kind;
+  if (projectId) form.dataset.projectId = projectId;
+  if (folderId) form.dataset.folderId = folderId;
+  const input = document.createElement("input");
+  input.type = "file";
+  input.name = "file";
+  input.accept = ".pdf,.xlsx,.xlsm,.txt,.md,.csv,.png,.jpg,.jpeg,.tif,.tiff";
+  form.appendChild(input);
+  if (kind === "standard") {
+    const name = document.createElement("input");
+    name.name = "standard_name";
+    name.placeholder = t("standardName");
+    const edition = document.createElement("input");
+    edition.name = "edition";
+    edition.placeholder = t("editionYear");
+    form.append(name, edition);
+  } else if (kind !== "library") {
+    const select = document.createElement("select");
+    select.name = "doc_type";
+    for (const [value, key] of [["project_spec", "spec"], ["datasheet", "datasheet"], ["vendor", "vendor"], ["requisition", "requisition"], ["upload", "otherFile"]]) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = t(key);
+      select.appendChild(option);
     }
+    form.appendChild(select);
+  } else {
+    const title = document.createElement("input");
+    title.name = "title";
+    title.placeholder = t("projectName");
+    form.appendChild(title);
   }
-  state.library = [...standardDocs, ...projectDocs, ...personal, ...globalDocs];
-  if (!standardDocs.length) standards.innerHTML = `<li><span>${t("noStandards")}</span></li>`;
-  for (const doc of standardDocs) standards.appendChild(docItem(doc, true));
-  if (!projectDocs.length) list.innerHTML = `<li><span>${t("noProjectFiles")}</span></li>`;
-  for (const doc of projectDocs) list.appendChild(docItem(doc, true));
+  const button = document.createElement("button");
+  button.className = "primary";
+  button.type = "submit";
+  button.textContent = kind === "standard" ? t("addStandard") : kind === "library" ? t("addGeneral") : t("addDoc");
+  form.appendChild(button);
+  const error = document.createElement("p");
+  error.className = "form-error";
+  error.dataset.for = kind === "library" ? "library" : kind === "standard" ? "standard" : "upload";
+  form.appendChild(error);
+  return form;
+}
+
+function folderBlocks(project, folders, docs) {
+  const picked = state.scopes.folders?.[project.id];
+  const visible = new Set(picked || folders.map((folder) => folder.id));
+  const host = document.createElement("div");
+  const ungrouped = docs.filter((doc) => !doc.folder_id);
+  if (!picked) {
+    const zone = document.createElement("div");
+    zone.className = "folder-drop";
+    zone.dataset.projectId = project.id;
+    zone.dataset.folderId = "";
+    const label = document.createElement("p");
+    label.className = "hint";
+    label.textContent = t("ungrouped");
+    zone.append(label, docList(ungrouped, true));
+    host.appendChild(zone);
+  }
+  const draw = (folder, depth) => {
+    if (picked && !visible.has(folder.id)) return;
+    const block = document.createElement("div");
+    block.className = "folder-block";
+    block.style.paddingInlineStart = `${depth * 0.7}rem`;
+    const head = document.createElement("div");
+    head.className = "folder-head";
+    head.dataset.projectId = project.id;
+    head.dataset.folderId = folder.id;
+    const name = document.createElement("span");
+    name.textContent = folder.name;
+    head.appendChild(name);
+    if (!state.uploadsLocked) {
+      const rename = document.createElement("button");
+      rename.type = "button";
+      rename.className = "ghost small";
+      rename.textContent = "✎";
+      rename.addEventListener("click", () => renameFolder(folder));
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "ghost small";
+      remove.textContent = "✕";
+      remove.addEventListener("click", () => removeFolder(folder));
+      head.append(rename, remove);
+      if (!folder.parent_id) {
+        const nested = document.createElement("button");
+        nested.type = "button";
+        nested.className = "ghost small";
+        nested.textContent = t("newFolder");
+        nested.addEventListener("click", () => createFolder(project.id, folder.id));
+        head.appendChild(nested);
+      }
+    }
+    const docsHere = docs.filter((doc) => doc.folder_id === folder.id);
+    block.append(head, docList(docsHere, true));
+    if (!state.uploadsLocked) block.appendChild(uploadForm("project", project.id, folder.id));
+    host.appendChild(block);
+    folders.filter((item) => item.parent_id === folder.id).forEach((child) => draw(child, depth + 1));
+  };
+  folders.filter((folder) => !folder.parent_id).forEach((folder) => draw(folder, 0));
+  if (!state.uploadsLocked) {
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "ghost small";
+    add.textContent = t("newFolder");
+    add.addEventListener("click", () => createFolder(project.id, null));
+    host.appendChild(add);
+  }
+  return host;
+}
+
+async function renderDocs(kbDocuments) {
+  const host = $("library-sections");
+  if (!host) return;
+  host.innerHTML = "";
+  state.library = [];
+  if (state.scopes.global) {
+    const group = document.createElement("details");
+    group.className = "scope-group";
+    group.open = true;
+    const summary = document.createElement("summary");
+    summary.textContent = t("generalKnowledge");
+    group.appendChild(summary);
+    let personal = [];
+    if (state.user && !state.user.is_anonymous) {
+      personal = (await api("/api/library/documents")).documents.map((doc) => ({ ...doc, scope: "personal", group: t("generalChip") }));
+    }
+    const shared = (kbDocuments || []).map((doc) => ({ ...doc, scope: doc.scope || "global", group: t("generalChip") }));
+    const mine = document.createElement("h3");
+    mine.textContent = t("yourFiles");
+    const sharedHead = document.createElement("h3");
+    sharedHead.textContent = t("globalNotes");
+    group.append(mine, docList(personal, true));
+    if (!state.uploadsLocked) group.appendChild(uploadForm("library"));
+    group.append(sharedHead, docList(shared, false));
+    host.appendChild(group);
+    state.library.push(...personal, ...shared);
+  }
+  for (const project of selectedProjects()) {
+    const [docs, folders] = await Promise.all([
+      api(`/api/projects/${project.id}/documents`),
+      api(`/api/projects/${project.id}/folders`),
+    ]);
+    state.folders[project.id] = folders.folders;
+    const group = document.createElement("details");
+    group.className = "scope-group";
+    group.open = true;
+    const summary = document.createElement("summary");
+    summary.textContent = projectCaption(project);
+    group.appendChild(summary);
+    const standards = docs.documents.filter((doc) => doc.doc_type === "standard").map((doc) => ({ ...doc, group: projectCaption(project) }));
+    const files = docs.documents.filter((doc) => doc.doc_type !== "standard").map((doc) => {
+      const folder = (state.folders[project.id] || []).find((item) => item.id === doc.folder_id);
+      return { ...doc, group: folder ? `${project.code} / ${folder.name}` : project.code };
+    });
+    const codesHead = document.createElement("h3");
+    codesHead.textContent = t("codesStandards");
+    const docsHead = document.createElement("h3");
+    docsHead.textContent = t("projectDocs");
+    group.append(codesHead, docList(standards, true));
+    if (!state.uploadsLocked) group.appendChild(uploadForm("standard", project.id));
+    group.append(docsHead, folderBlocks(project, state.folders[project.id] || [], files));
+    host.appendChild(group);
+    const picked = state.scopes.folders?.[project.id];
+    state.library.push(...standards, ...(picked ? files.filter((doc) => picked.includes(doc.folder_id)) : files));
+  }
 }
 
 function docItem(doc, canDelete) {
   const li = document.createElement("li");
+  li.dataset.docId = doc.id;
+  if (canDelete && doc.doc_type !== "standard" && doc.scope !== "personal" && doc.scope !== "global") li.draggable = true;
   const icon = document.createElement("span");
   icon.className = "doc-ico";
   icon.textContent = doc.doc_type === "standard" ? "§" : "▣";
@@ -437,7 +633,15 @@ function renderMentionMenu(items) {
     return;
   }
   state.mentionIndex = Math.min(state.mentionIndex, items.length - 1);
+  let lastGroup = "";
   items.forEach((doc, index) => {
+    if (doc.group && doc.group !== lastGroup) {
+      lastGroup = doc.group;
+      const heading = document.createElement("div");
+      heading.className = "mention-group";
+      heading.textContent = doc.group;
+      menu.appendChild(heading);
+    }
     const button = document.createElement("button");
     button.type = "button";
     button.setAttribute("role", "option");
@@ -775,6 +979,20 @@ $("logout").addEventListener("click", () => {
   showAuth();
 });
 
+document.addEventListener("click", (event) => {
+  const menu = $("scope-menu");
+  if (!menu || menu.hidden) return;
+  if (event.target.closest("#scope-menu") || event.target.closest("#scope-button") || event.target.closest("#scope-chips")) return;
+  menu.hidden = true;
+  $("scope-button").setAttribute("aria-expanded", "false");
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  const menu = $("scope-menu");
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  $("scope-button").setAttribute("aria-expanded", "false");
+});
 $("scope-button").addEventListener("click", () => {
   const menu = $("scope-menu");
   menu.hidden = !menu.hidden;
@@ -786,13 +1004,14 @@ window.addEventListener("resize", placeScopeMenu);
 async function submitUpload(event, errorName, extra) {
   event.preventDefault();
   setError(errorName, "");
-  const target = state.scopes.projectIds[0];
-  if (!target) {
+  const target = event.target.dataset.projectId || state.scopes.projectIds[0];
+  if (event.target.dataset.kind !== "library" && !target) {
     setError(errorName, t("uploadNeedProject"));
     return;
   }
   const form = new FormData(event.target);
   for (const [key, value] of Object.entries(extra || {})) form.set(key, value);
+  if (event.target.dataset.folderId) form.set("folder_id", event.target.dataset.folderId);
   event.target.classList.add("uploading");
   try {
     await api(`/api/projects/${target}/documents`, { method: "POST", body: form });
@@ -806,24 +1025,71 @@ async function submitUpload(event, errorName, extra) {
   }
 }
 
-$("upload-form").addEventListener("submit", (event) => submitUpload(event, "upload"));
-$("standard-form").addEventListener("submit", (event) => submitUpload(event, "standard", { doc_type: "standard" }));
-$("library-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  setError("library", "");
-  const form = new FormData(event.target);
-  event.target.classList.add("uploading");
-  try {
-    await api("/api/library/documents", { method: "POST", body: form });
-    event.target.reset();
-    const kb = await api("/api/kb/documents");
-    await renderDocs(kb.documents);
-  } catch (error) {
-    setError("library", error.message);
-  } finally {
-    event.target.classList.remove("uploading");
+$("library-sections").addEventListener("submit", (event) => {
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement)) return;
+  if (form.dataset.kind === "library") {
+    event.preventDefault();
+    setError("library", "");
+    const body = new FormData(form);
+    form.classList.add("uploading");
+    api("/api/library/documents", { method: "POST", body }).then(async () => {
+      form.reset();
+      const kb = await api("/api/kb/documents");
+      await renderDocs(kb.documents);
+    }).catch((error) => setError("library", error.message)).finally(() => form.classList.remove("uploading"));
+    return;
   }
+  if (form.dataset.kind === "standard") submitUpload(event, "standard", { doc_type: "standard" });
+  else if (form.dataset.kind === "project") submitUpload(event, "upload");
 });
+$("library-sections").addEventListener("dragstart", (event) => {
+  const item = event.target.closest("[data-doc-id]");
+  if (!item) return;
+  event.dataTransfer.setData("text/plain", item.dataset.docId);
+});
+$("library-sections").addEventListener("dragover", (event) => {
+  if (event.target.closest("[data-folder-id]")) event.preventDefault();
+});
+$("library-sections").addEventListener("drop", async (event) => {
+  const zone = event.target.closest("[data-folder-id]");
+  const docId = event.dataTransfer.getData("text/plain");
+  if (!zone || !docId) return;
+  event.preventDefault();
+  await api(`/api/projects/${zone.dataset.projectId}/documents/${docId}`, {
+    method: "PATCH",
+    json: { folder_id: zone.dataset.folderId || null },
+  });
+  const kb = await api("/api/kb/documents");
+  await renderDocs(kb.documents);
+});
+
+async function renameFolder(folder) {
+  const name = window.prompt(t("renameFolder"), folder.name);
+  if (!name || name === folder.name) return;
+  await api(`/api/folders/${folder.id}`, { method: "PATCH", json: { name } });
+  const kb = await api("/api/kb/documents");
+  await renderDocs(kb.documents);
+}
+
+async function removeFolder(folder) {
+  try {
+    await api(`/api/folders/${folder.id}`, { method: "DELETE" });
+  } catch (error) {
+    if (!window.confirm(`${error.message} ${t("deleteFolderAnyway")}`)) return;
+    await api(`/api/folders/${folder.id}?force=true`, { method: "DELETE" });
+  }
+  const kb = await api("/api/kb/documents");
+  await renderDocs(kb.documents);
+}
+
+async function createFolder(projectId, parentId) {
+  const name = window.prompt(t("newFolder"));
+  if (!name) return;
+  await api(`/api/projects/${projectId}/folders`, { method: "POST", json: { name, parent_id: parentId } });
+  const kb = await api("/api/kb/documents");
+  await renderDocs(kb.documents);
+}
 
 function openProjectModal(project) {
   state.editingProject = project || null;
@@ -931,7 +1197,11 @@ $("composer").addEventListener("submit", async (event) => {
         message,
         mode,
         project_id: state.scopes.projectIds.length === 1 ? state.scopes.projectIds[0] : null,
-        scopes: { global: state.scopes.global, project_ids: state.scopes.projectIds },
+        scopes: {
+          global: state.scopes.global,
+          project_ids: state.scopes.projectIds,
+          folders: state.scopes.folders || {},
+        },
         conversation_id: state.conversationId,
         document_ids: state.mentions.map((item) => item.id),
       },
@@ -1053,6 +1323,7 @@ $("code-form").addEventListener("submit", async (event) => {
 window.onUiLang = () => {
   renderPrompts();
   renderUser();
+  if (state.user) refreshLibrary();
   document.querySelectorAll(".kind").forEach((node) => {
     const kind = [...node.classList].find((name) => name !== "kind");
     if (kind) node.textContent = t(kind);

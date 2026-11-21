@@ -93,6 +93,7 @@ def run_query(
     projects: list[Project] | None = None,
     include_global: bool | None = None,
     owner_id: str | None = None,
+    folder_documents: dict[str, set[str]] | None = None,
 ) -> dict:
     resolved = classify(message, mode)
     selected = projects if projects is not None else ([project] if project else [])
@@ -110,6 +111,7 @@ def run_query(
         project_ids=[item.id for item in selected],
         include_global=include_global,
         owner_id=owner_id if include_global else None,
+        folder_documents=folder_documents,
     )
 
     conflicts: list[dict] = []
@@ -122,6 +124,8 @@ def run_query(
             if chosen:
                 pairs = [(obs.document, obs.clause) for conflict in chosen for obs in conflict.observed]
                 extra = _chunks_for_clauses(db, item.id, pairs)
+                if folder_documents and item.id in folder_documents:
+                    extra = [chunk for chunk in extra if chunk.document_id in folder_documents[item.id]]
                 if document_ids:
                     allowed_docs = set(document_ids)
                     extra = [chunk for chunk in extra if chunk.document_id in allowed_docs]

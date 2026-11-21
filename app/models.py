@@ -94,6 +94,16 @@ class Membership(Base):
     role: Mapped[str] = mapped_column(String(20), default="viewer")
 
 
+class Folder(Base):
+    __tablename__ = "folders"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    parent_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class Document(Base):
     __tablename__ = "documents"
 
@@ -101,6 +111,7 @@ class Document(Base):
     external_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     scope: Mapped[str] = mapped_column(String(20), index=True)
     project_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    folder_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     filename: Mapped[str] = mapped_column(String(300))
     stored_path: Mapped[str] = mapped_column(Text, default="")
     title: Mapped[str] = mapped_column(String(300))
