@@ -129,6 +129,95 @@ async function refreshDrive() {
   }
 }
 
+function projectCaption(project) {
+  const code = project.code || "";
+  let name = (project.name || "").trim();
+  if (name.toLowerCase().startsWith(code.toLowerCase())) {
+    name = name.slice(code.length).replace(/^[\s—\-–:]+/, "").trim();
+  }
+  return name ? `${code} — ${name}` : code;
+}
+
+function scopeIcon(path) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", "14");
+  svg.setAttribute("height", "14");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  const node = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  node.setAttribute("d", path);
+  svg.appendChild(node);
+  return svg;
+}
+
+function scopeRow({ checked, text, onToggle, actions }) {
+  const row = document.createElement("div");
+  row.className = "scope-row";
+  const label = document.createElement("label");
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = checked;
+  input.addEventListener("change", onToggle);
+  const span = document.createElement("span");
+  span.className = "scope-text";
+  span.textContent = text;
+  span.title = text;
+  label.append(input, span);
+  row.appendChild(label);
+  row.addEventListener("click", (event) => {
+    if (event.target.closest(".scope-actions") || event.target.closest("label")) return;
+    input.click();
+  });
+  if (actions) {
+    const box = document.createElement("div");
+    box.className = "scope-actions";
+    const rename = document.createElement("button");
+    rename.type = "button";
+    rename.className = "icon-btn";
+    rename.title = t("renameProject");
+    rename.setAttribute("aria-label", t("renameProject"));
+    rename.appendChild(scopeIcon("M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"));
+    rename.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openProjectModal(actions);
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "icon-btn";
+    remove.title = t("deleteProject");
+    remove.setAttribute("aria-label", t("deleteProject"));
+    remove.appendChild(scopeIcon("M4 7h16M9 7V5h6v2m-8 0 1 13h8l1-13"));
+    remove.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteProject(actions);
+    });
+    box.append(rename, remove);
+    row.appendChild(box);
+  }
+  return row;
+}
+
+function placeScopeMenu() {
+  const button = $("scope-button");
+  const menu = $("scope-menu");
+  if (!button || !menu || menu.hidden) return;
+  if (menu.parentElement !== document.body) document.body.appendChild(menu);
+  const rect = button.getBoundingClientRect();
+  const width = Math.min(340, window.innerWidth - 16);
+  menu.style.top = `${Math.min(rect.bottom + 6, window.innerHeight - 16)}px`;
+  menu.style.width = `${Math.max(rect.width, Math.min(width, 320))}px`;
+  const rtl = document.documentElement.dir === "rtl";
+  if (rtl) {
+    menu.style.left = "auto";
+    menu.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
+  } else {
+    menu.style.right = "auto";
+    menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
+  }
+}
+
 function selectedProjects() {
   const ids = new Set(state.scopes.projectIds);
   return state.projects.filter((project) => ids.has(project.id));
@@ -174,36 +263,22 @@ function renderScope() {
     button.addEventListener("click", onRemove);
     chips.appendChild(button);
   };
-  if (state.scopes.global) addChip(t("generalKnowledge"), toggleGlobal);
+  if (state.scopes.global) addChip(t("generalChip"), toggleGlobal);
   for (const project of selectedProjects()) addChip(project.code, () => toggleProject(project.id));
   menu.innerHTML = "";
-  const general = document.createElement("label");
-  general.innerHTML = `<input type="checkbox" ${state.scopes.global ? "checked" : ""} /> <span></span>`;
-  general.querySelector("span").textContent = t("generalKnowledge");
-  general.querySelector("input").addEventListener("change", toggleGlobal);
-  menu.appendChild(general);
+  menu.appendChild(scopeRow({
+    checked: state.scopes.global,
+    text: t("generalKnowledge"),
+    onToggle: toggleGlobal,
+  }));
   for (const project of state.projects) {
-    const row = document.createElement("div");
-    row.className = "scope-row";
-    const label = document.createElement("label");
-    label.innerHTML = `<input type="checkbox" ${state.scopes.projectIds.includes(project.id) ? "checked" : ""} /> <span></span>`;
-    label.querySelector("span").textContent = `${project.code} — ${project.name}`;
-    label.querySelector("input").addEventListener("change", () => toggleProject(project.id));
-    row.appendChild(label);
-    if (project.role === "owner" || project.role === "admin") {
-      const rename = document.createElement("button");
-      rename.type = "button";
-      rename.className = "ghost small";
-      rename.textContent = t("renameProject");
-      rename.addEventListener("click", () => openProjectModal(project));
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "ghost small";
-      remove.textContent = t("deleteDoc");
-      remove.addEventListener("click", () => deleteProject(project));
-      row.append(rename, remove);
-    }
-    menu.appendChild(row);
+    const text = projectCaption(project);
+    menu.appendChild(scopeRow({
+      checked: state.scopes.projectIds.includes(project.id),
+      text,
+      onToggle: () => toggleProject(project.id),
+      actions: project.role === "owner" || project.role === "admin" ? project : null,
+    }));
   }
   const empty = !state.projects.length;
   $("no-projects").hidden = !empty;
@@ -591,7 +666,8 @@ function renderEvidence(answer) {
     card.className = "citation";
     card.id = `cit-${citation.citation_id}`;
     card.innerHTML = `<header><strong></strong><span class="badge"></span></header><p class="meta"></p><p class="excerpt"></p>`;
-    const where = citation.store_label ? ` · ${citation.store_label}` : "";
+    const label = citation.store === "global" || citation.store === "personal" ? t("generalKnowledge") : citation.store_label;
+    const where = label ? ` · ${label}` : "";
     card.querySelector("strong").textContent = `${citation.citation_id} · ${citation.source_document}${where}`;
     const badge = card.querySelector(".badge");
     badge.textContent = t(citation.statement_class) || citation.statement_label || citation.statement_class;
@@ -703,7 +779,9 @@ $("scope-button").addEventListener("click", () => {
   const menu = $("scope-menu");
   menu.hidden = !menu.hidden;
   $("scope-button").setAttribute("aria-expanded", menu.hidden ? "false" : "true");
+  if (!menu.hidden) placeScopeMenu();
 });
+window.addEventListener("resize", placeScopeMenu);
 
 async function submitUpload(event, errorName, extra) {
   event.preventDefault();
@@ -1014,6 +1092,57 @@ $("close-sidebar").addEventListener("click", () => setSheet("nav", false));
 $("open-evidence").addEventListener("click", () => setSheet("evidence", true));
 $("close-evidence").addEventListener("click", () => setSheet("evidence", false));
 $("sheet-backdrop").addEventListener("click", () => setSheet("", false));
+
+function bindSplitter(el, key, store, min, max, fallback) {
+  if (!el) return;
+  const read = () => {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(key);
+    const value = parseInt(raw, 10);
+    return Number.isFinite(value) ? value : fallback;
+  };
+  const write = (value) => {
+    const next = Math.min(max, Math.max(min, Math.round(value)));
+    document.documentElement.style.setProperty(key, `${next}px`);
+    localStorage.setItem(store, String(next));
+    el.setAttribute("aria-valuemin", String(min));
+    el.setAttribute("aria-valuemax", String(max));
+    el.setAttribute("aria-valuenow", String(next));
+  };
+  const saved = parseInt(localStorage.getItem(store) || "", 10);
+  write(Number.isFinite(saved) ? saved : fallback);
+  let dragging = false;
+  let startX = 0;
+  let startW = 0;
+  const rtlSign = () => (document.documentElement.dir === "rtl" ? -1 : 1);
+  const direction = key === "--side-w" ? 1 : -1;
+  el.addEventListener("pointerdown", (event) => {
+    if (window.matchMedia("(max-width: 980px)").matches) return;
+    dragging = true;
+    startX = event.clientX;
+    startW = read();
+    el.setPointerCapture(event.pointerId);
+  });
+  el.addEventListener("pointermove", (event) => {
+    if (!dragging) return;
+    write(startW + (event.clientX - startX) * direction * rtlSign());
+  });
+  el.addEventListener("pointerup", () => { dragging = false; });
+  el.addEventListener("pointercancel", () => { dragging = false; });
+  el.addEventListener("dblclick", () => write(fallback));
+  el.addEventListener("keydown", (event) => {
+    const step = event.shiftKey ? 32 : 16;
+    const sign = direction * rtlSign();
+    if (event.key === "ArrowRight") write(read() + step * sign);
+    else if (event.key === "ArrowLeft") write(read() - step * sign);
+    else if (event.key === "Home") write(min);
+    else if (event.key === "End") write(max);
+    else if (event.key === "Enter") write(fallback);
+    else return;
+    event.preventDefault();
+  });
+}
+bindSplitter($("split-side"), "--side-w", "eai_side_w", 220, 480, 300);
+bindSplitter($("split-evidence"), "--evidence-w", "eai_evidence_w", 240, 560, 340);
 $("messages").addEventListener("scroll", () => {
   stickToBottom = nearBottom();
   const jump = $("jump-latest");

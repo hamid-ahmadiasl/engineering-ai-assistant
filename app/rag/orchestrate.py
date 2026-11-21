@@ -137,7 +137,7 @@ def run_query(
     codes = {item.id: item.code for item in selected}
     for citation in result.get("citations") or []:
         if citation.get("store") in {"global", "personal"}:
-            citation["store_label"] = "General"
+            citation["store_label"] = "General codes and standards"
         else:
             citation["store_label"] = codes.get(citation.get("project_id") or "", citation.get("store") or "")
     result["project_id"] = selected[0].id if len(selected) == 1 else None
