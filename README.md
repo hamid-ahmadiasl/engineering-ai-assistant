@@ -83,8 +83,10 @@ Groq, the default:
 LLM_PRESET=groq
 GROQ_API_KEY=gsk_...
 # LLM_BASE_URL=https://api.groq.com/openai/v1
-# LLM_MODEL=llama-3.3-70b-versatile
+# LLM_MODEL=openai/gpt-oss-120b
 ```
+
+Groq retired `llama-3.3-70b-versatile` on 16 August 2026. The preset now calls `openai/gpt-oss-120b` at `https://api.groq.com/openai/v1/chat/completions`. An administrator can confirm the live call with `GET /api/admin/llm-check`.
 
 Gemini’s OpenAI-compatible endpoint:
 

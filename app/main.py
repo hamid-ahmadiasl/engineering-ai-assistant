@@ -45,6 +45,7 @@ from app.credits import charge_or_http, ensure_period, quota_detail, reset_balan
 from app.db import get_db, init_db, session_scope
 from app.ingest.pipeline import ALLOWED_SUFFIXES, delete_document, ingest_path
 from app.models import AccessCode, Conversation, Document, Membership, Message, Project, UsageEvent, User, utcnow
+from app.rag.llm import llm_check
 from app.rag.orchestrate import run_query
 from app.seed.bootstrap import bootstrap_admin, seed_demo
 from app.stores.embeddings import embedding_backend
@@ -519,6 +520,12 @@ def get_conversation(conversation_id: str, user: User = Depends(current_user), d
             {"id": msg.id, "role": msg.role, "content": json.loads(msg.content_json)} for msg in messages
         ],
     }
+
+
+@app.get("/api/admin/llm-check")
+def admin_llm_check(user: User = Depends(current_user)) -> dict:
+    require_admin(user)
+    return llm_check()
 
 
 @app.get("/api/admin/users")

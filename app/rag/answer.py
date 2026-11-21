@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 
 from app.rag.citations import STATEMENT_LABELS, format_citation
-from app.rag.llm import complete
-from app.textnorm import answer_language
+from app.rag.llm import complete, public_snippet
+from app.textnorm import answer_language, is_persian
+
+log = logging.getLogger("engineering_assistant.answer")
 
 DISCLAIMER = (
     "Decision support only. A qualified engineer reviews every statement before it is used. "
@@ -54,27 +57,117 @@ def _block_for_source(statement_class: str) -> str | None:
     return None
 
 
+_KIND_MAP = {
+    "explicit_requirement": "explicit_requirement",
+    "explicitrequirement": "explicit_requirement",
+    "requirement": "explicit_requirement",
+    "engineering_recommendation": "engineering_recommendation",
+    "engineeringrecommendation": "engineering_recommendation",
+    "recommendation": "engineering_recommendation",
+    "ai_interpretation": "ai_interpretation",
+    "interpretation": "ai_interpretation",
+    "informative": "ai_interpretation",
+    "vendor_offer": "ai_interpretation",
+}
+
+
+def _strip_wrappers(raw: str) -> str:
+    text = raw.strip()
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S | re.I).strip()
+    fence = re.search(r"```(?:json|JSON)?\s*(.*?)```", text, re.S)
+    if fence:
+        text = fence.group(1).strip()
+    return text
+
+
+def _as_blocks(data: object) -> dict | None:
+    if isinstance(data, list):
+        return {"blocks": data}
+    if not isinstance(data, dict):
+        return None
+    if isinstance(data.get("blocks"), list):
+        return data
+    if data.get("text") or data.get("kind"):
+        return {"blocks": [data]}
+    return None
+
+
 def _parse_llm(raw: str) -> dict | None:
-    match = re.search(r"\{.*\}", raw, re.S)
-    if not match:
+    if not raw or not raw.strip():
         return None
-    try:
-        data = json.loads(match.group(0))
-    except json.JSONDecodeError:
+    text = _strip_wrappers(raw)
+    decoder = json.JSONDecoder()
+    starts = [0]
+    starts.extend(index for index, char in enumerate(text) if char == "{")
+    seen: set[int] = set()
+    for start in starts:
+        if start in seen:
+            continue
+        seen.add(start)
+        chunk = text[start:]
+        try:
+            if start == 0:
+                try:
+                    data = json.loads(text)
+                except json.JSONDecodeError:
+                    data = decoder.raw_decode(chunk)[0]
+            else:
+                data = decoder.raw_decode(chunk)[0]
+        except json.JSONDecodeError:
+            continue
+        parsed = _as_blocks(data)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _cite_token(raw: object, known: dict[str, str]) -> str | None:
+    text = str(raw).strip().strip("[](){}<>\"'` ").rstrip(".,;:")
+    if not text:
         return None
-    if not isinstance(data.get("blocks"), list):
-        return None
-    return data
+    if text.lower() in known:
+        return known[text.lower()]
+    match = re.search(r"\b(C\d+)\b", text, re.I)
+    if match and match.group(1).lower() in known:
+        return known[match.group(1).lower()]
+    return None
+
+
+def _cite_list(block: dict) -> list:
+    raw_ids = block.get("citation_ids")
+    if raw_ids is None:
+        raw_ids = block.get("citations") or []
+    if isinstance(raw_ids, str):
+        raw_ids = [part for part in re.split(r"[,;\s]+", raw_ids) if part]
+    if not isinstance(raw_ids, list):
+        raw_ids = [raw_ids]
+    return raw_ids
 
 
 def _valid_blocks(data: dict, known_ids: set[str]) -> list[dict]:
+    known = {cid.lower(): cid for cid in known_ids}
     blocks = []
     for block in data.get("blocks", []):
-        kind = block.get("kind")
-        text = (block.get("text") or "").strip()
-        if kind not in STATEMENT_LABELS or kind == "informative" or not text:
+        if isinstance(block, str):
+            text = block.strip()
+            if text:
+                blocks.append({"kind": "ai_interpretation", "text": text, "citation_ids": []})
             continue
-        cites = [cid for cid in block.get("citation_ids") or [] if cid in known_ids]
+        if not isinstance(block, dict):
+            continue
+        text = str(block.get("text") or "").strip()
+        if not text:
+            continue
+        kind_raw = str(block.get("kind") or "").strip().lower().replace("-", " ").replace("_", " ")
+        kind_key = kind_raw.replace(" ", "")
+        kind = _KIND_MAP.get(kind_key) or _KIND_MAP.get(kind_raw.replace(" ", "_")) or "ai_interpretation"
+        if kind not in {"explicit_requirement", "engineering_recommendation", "ai_interpretation"}:
+            kind = "ai_interpretation"
+        cites: list[str] = []
+        for raw_id in _cite_list(block):
+            cid = _cite_token(raw_id, known)
+            if cid and cid not in cites:
+                cites.append(cid)
         if kind != "ai_interpretation" and not cites:
             kind = "ai_interpretation"
         blocks.append({"kind": kind, "text": text, "citation_ids": cites})
@@ -283,24 +376,44 @@ def answer_from_evidence(mode: str, question: str, chunks: list, conflicts: list
                 "excerpt": citation["excerpt"],
             }
         )
+    language_rule = (
+        "Write every block text and every limitation in Persian. "
+        "Do not translate document titles, clause numbers, revisions, units, or numeric values."
+        if lang == "fa"
+        else "Write every block text and every limitation in English."
+    )
     user = json.dumps(
         {
             "question": question,
+            "answer_language": lang,
+            "instruction": language_rule,
             "mode": mode,
             "conflicts": conflicts,
             "evidence": evidence,
         },
         ensure_ascii=False,
     )
-    raw = complete(SYSTEM, user)
+    raw = complete(SYSTEM, user, json_mode=True)
     if not raw:
+        log.warning("LLM completion returned nothing; using the extractive answer")
         return base
     parsed = _parse_llm(raw)
     if not parsed:
+        log.warning("LLM output did not parse as blocks JSON: %s", public_snippet(raw))
         return base
     blocks = _valid_blocks(parsed, known)
     if not blocks:
+        log.warning("LLM blocks failed validation: %s", public_snippet(raw))
         return base
+    if lang == "fa" and not any(is_persian(block["text"]) for block in blocks):
+        blocks = to_persian(
+            {
+                "blocks": blocks,
+                "citations": citations,
+                "conflicts": conflicts,
+                "mode": mode,
+            }
+        )["blocks"]
     limitations = [str(item) for item in parsed.get("limitations") or [] if str(item).strip()]
     disclaimer = DISCLAIMER_FA if lang == "fa" else DISCLAIMER
     note = (

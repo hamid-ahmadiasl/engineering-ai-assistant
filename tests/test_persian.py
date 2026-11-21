@@ -81,7 +81,7 @@ def test_mocked_llm_follows_the_question_language(client, monkeypatch):
     with session_scope() as db:
         seed_demo(db)
 
-    def fake_complete(system, user):
+    def fake_complete(system, user, **kwargs):
         assert "Persian" in system
         question = json.loads(user)["question"]
         if "فشار" in question:
