@@ -72,6 +72,25 @@ def test_valid_blocks_keep_lenient_citations():
     assert blocks[2]["kind"] == "ai_interpretation"
 
 
+def test_retired_groq_model_is_replaced(monkeypatch):
+    _groq_env(monkeypatch)
+    monkeypatch.setenv("LLM_MODEL", "llama-3.3-70b-versatile")
+
+    class Response:
+        status_code = 200
+        text = "{}"
+
+        def json(self):
+            return {"choices": [{"message": {"content": '{"sample": "pong"}'}}]}
+
+    _Client.response = Response()
+    _Client.captured = {}
+    monkeypatch.setattr("app.rag.llm.httpx.Client", _Client)
+    text, error = complete_detailed("Return JSON", "ping", json_mode=True)
+    assert error is None and text
+    assert _Client.captured["json"]["model"] == "openai/gpt-oss-120b"
+
+
 def test_groq_request_uses_json_mode_and_a_live_model(monkeypatch):
     _groq_env(monkeypatch)
 

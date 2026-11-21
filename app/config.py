@@ -10,6 +10,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Free and developer Groq tiers stopped serving these ids on 2026-08-16.
+_RETIRED_GROQ_MODELS = {
+    "llama-3.3-70b-versatile": "openai/gpt-oss-120b",
+    "llama-3.1-8b-instant": "openai/gpt-oss-20b",
+}
+
 LLM_PRESETS: dict[str, dict[str, str]] = {
     "groq": {
         "base_url": "https://api.groq.com/openai/v1",
@@ -150,6 +156,8 @@ def get_settings() -> Settings:
         key = os.getenv("LLM_API_KEY", "").strip() or "ollama"
     base_url = os.getenv("LLM_BASE_URL", "").strip() or preset["base_url"]
     model = os.getenv("LLM_MODEL", "").strip() or preset["model"]
+    if preset_name == "groq":
+        model = _RETIRED_GROQ_MODELS.get(model, model)
     provider = os.getenv("LLM_PROVIDER", "auto").strip().lower() or "auto"
     embed = os.getenv("EMBEDDING_PROVIDER", "fastembed").strip().lower() or "fastembed"
     app_base = os.getenv("APP_BASE_URL", "http://localhost:7860").rstrip("/")
