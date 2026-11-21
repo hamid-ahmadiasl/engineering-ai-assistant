@@ -2,6 +2,8 @@
 
 Decision-support chat for mechanical and process engineers working on pressure equipment and heat exchangers. An engineer asks in plain language. The assistant answers from two separate knowledge stores and shows the page it used. It does not approve a design, accept a deviation, or replace the licensed code.
 
+**[Live demo](https://engineering-ai-assistant-i9fb.onrender.com).** The free host sleeps when idle, so the first load may take about 30–60 seconds.
+
 The shipped corpus is original demo text. It is not ASME, API, TEMA, ASTM, ISO, or EN, and it is not for design.
 
 ## What you can do
@@ -191,7 +193,7 @@ EMBEDDING_PROVIDER=hash LLM_PROVIDER=none python eval/rq4_traceability.py
 
 ## Deploy the public demo
 
-The live demo is a free [Render](https://render.com) web service built from this repo’s Dockerfile. GitHub Pages is the project page. A Hugging Face Docker Space is optional and paid on this account.
+The live demo is [https://engineering-ai-assistant-i9fb.onrender.com](https://engineering-ai-assistant-i9fb.onrender.com), a free [Render](https://render.com) web service built from this repo’s Dockerfile. The free host sleeps when idle, so the first load may take about 30–60 seconds. GitHub Pages is the project page. A Hugging Face Docker Space is optional and paid on this account.
 
 ### 1. GitHub
 
@@ -206,7 +208,7 @@ Either:
 - Settings → Pages → Build and deployment → Source: **Deploy from a branch** → branch `main` → folder `/docs`, or
 - Settings → Pages → Source: **GitHub Actions**. The workflow `.github/workflows/pages.yml` publishes `docs/` on pushes that touch that folder.
 
-The live-demo buttons point at [Deploy on Render](#deploy-on-render) until the service URL exists. After the first deploy, replace those links with the `onrender.com` address.
+The project page buttons open the [live demo](https://engineering-ai-assistant-i9fb.onrender.com).
 
 ### Deploy on Render
 
@@ -217,7 +219,7 @@ The live-demo buttons point at [Deploy on Render](#deploy-on-render) until the s
 1. Click **Deploy to Render** (or in the Render dashboard: New → Blueprint, and select this repository).
 2. Render reads `render.yaml` from `main`.
 3. When it asks for values, enter the four below. `SECRET_KEY` is generated for you. The other keys in the Blueprint already have values; leave them.
-4. Apply the Blueprint and wait for the Docker build. The service URL looks like `https://engineering-ai-assistant.onrender.com`.
+4. Apply the Blueprint and wait for the Docker build. The live service is [https://engineering-ai-assistant-i9fb.onrender.com](https://engineering-ai-assistant-i9fb.onrender.com).
 5. Open `/api/health`. `embedding` should be `hash`, and `demo_mode` should be true.
 
 The process binds `0.0.0.0:$PORT`. Render sets `PORT`. When `PORT` is unset (local Docker, Hugging Face), the image listens on **7860**, so those hosts are unchanged.
