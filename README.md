@@ -17,7 +17,7 @@ Vendor document review as a separate workflow is out of scope for this prototype
 
 Questions can be asked in Persian, or in a mix of Persian and Latin terms such as ASME, TEMA, and barg. The answer is written in the language of the question. Document titles, clause numbers, revisions, units, and numeric values stay as they appear in the source. Requirement, recommendation, and interpretation labels switch with the interface language. The chat UI has an English / فارسی control and lays out right to left when Persian is selected. The project page has the same split: `docs/index.html` and `docs/fa/index.html`.
 
-Retrieval still runs on the English corpus. A Persian question is expanded with a fixed engineering glossary and, when `QUERY_TRANSLATION=both` and a model key is set, with an English rewrite from the model. The default embedding model is `intfloat/multilingual-e5-small`, so the vector index can also place Persian next to English. Uploaded Persian text is normalized before indexing: Arabic yeh and kaf fold to the Persian letters, ZWNJ becomes a space, and Persian or Arabic digits become Western digits.
+Retrieval still runs on the English corpus. A Persian question is expanded with a fixed engineering glossary and, when `QUERY_TRANSLATION=both` and a model key is set, with an English rewrite from the model. That rewrite is what makes Persian search work on the free Render host, which does not load a multilingual embedding model. Uploaded Persian text is normalized before indexing: Arabic yeh and kaf fold to the Persian letters, ZWNJ becomes a space, and Persian or Arabic digits become Western digits.
 
 ## Run it locally
 
@@ -59,7 +59,9 @@ Copy `.env.example`. Nothing secret is hardcoded.
 | `OPENAI_API_KEY` | Used when `LLM_PRESET=openai` |
 | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` | Override the preset. Any OpenAI-compatible server works (OpenAI, Azure, Groq, Gemini, Ollama). |
 | `LLM_PROVIDER` | `auto` calls the API when a key exists, otherwise quoted excerpts. `none` never calls a model. |
-| `EMBEDDING_PROVIDER` | `fastembed` (CPU, `BAAI/bge-small-en-v1.5`) or `hash` (offline, used by tests) |
+| `EMBEDDING_PROVIDER` | `fastembed` (CPU ONNX, loaded on first embed) or `hash` (no model). The [Render](#deploy-on-render) free service uses `hash`. |
+| `EMBEDDING_MODEL` | Used only when the provider is `fastembed`. Default is `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (about 0.22 GB). `intfloat/multilingual-e5-small` is not in the installed fastembed build. |
+| `QUERY_TRANSLATION` | `both` (default), `glossary`, `llm`, or `off`. Persian questions use this path to search the English corpus. |
 | `DATABASE_URL` | Empty means SQLite in `DATA_DIR`. Postgres URL is rewritten to `postgresql+psycopg://`. |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Bootstrap administrator. The password is stored as a bcrypt hash. Restart does not overwrite an existing admin. |
 | `DEMO_MODE` | `true` closes open registration and rate-limits uploads and chat. |
@@ -189,24 +191,61 @@ EMBEDDING_PROVIDER=hash LLM_PROVIDER=none python eval/rq4_traceability.py
 
 ## Deploy the public demo
 
-All of this stays on free tiers.
+The live demo is a free [Render](https://render.com) web service built from this repo’s Dockerfile. GitHub Pages is the project page. A Hugging Face Docker Space is optional and paid on this account.
 
 ### 1. GitHub
 
-Push this repository to GitHub. The intended public remote is `https://github.com/hamid-ahmadiasl/engineering-ai-assistant`.
+Push this repository to GitHub. The public remote is `https://github.com/hamid-ahmadiasl/engineering-ai-assistant`.
 
 ### 2. Project page (GitHub Pages)
 
-The page is the single file `docs/index.html`.
+The page is `docs/index.html` (Persian: `docs/fa/index.html`).
 
 Either:
 
 - Settings → Pages → Build and deployment → Source: **Deploy from a branch** → branch `main` → folder `/docs`, or
 - Settings → Pages → Source: **GitHub Actions**. The workflow `.github/workflows/pages.yml` publishes `docs/` on pushes that touch that folder.
 
-### 3. Hugging Face Space
+The live-demo buttons point at [Deploy on Render](#deploy-on-render) until the service URL exists. After the first deploy, replace those links with the `onrender.com` address.
 
-1. Create a Space, SDK **Docker**, hardware **CPU Basic**.
+### Deploy on Render
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/hamid-ahmadiasl/engineering-ai-assistant)
+
+`render.yaml` is a Blueprint for one web service: Docker runtime, free plan, this Dockerfile, health check `/api/health`.
+
+1. Click **Deploy to Render** (or in the Render dashboard: New → Blueprint, and select this repository).
+2. Render reads `render.yaml` from `main`.
+3. When it asks for values, enter the four below. `SECRET_KEY` is generated for you. The other keys in the Blueprint already have values; leave them.
+4. Apply the Blueprint and wait for the Docker build. The service URL looks like `https://engineering-ai-assistant.onrender.com`.
+5. Open `/api/health`. `embedding` should be `hash`, and `demo_mode` should be true.
+
+The process binds `0.0.0.0:$PORT`. Render sets `PORT`. When `PORT` is unset (local Docker, Hugging Face), the image listens on **7860**, so those hosts are unchanged.
+
+**Free disk is ephemeral, and the service sleeps after about 15 minutes without a request.** A wake, a restart, or a new deploy starts a fresh container. SQLite, Chroma, and uploaded files on the instance disk are gone. The demo corpus is ingested again on boot. For accounts and credits that survive sleep, set `DATABASE_URL` to a free [Neon](https://neon.tech) Postgres URL (`postgresql://…?sslmode=require`). The vector index still lives on the instance disk and is rebuilt when the seed runs. Treat uploads on the free instance as temporary.
+
+#### Values you type in
+
+| Variable | What to enter |
+| --- | --- |
+| `GROQ_API_KEY` | Groq API key. Without it the demo still answers, using quoted excerpts, and Persian search uses only the glossary. |
+| `ADMIN_EMAIL` | Bootstrap administrator email. |
+| `ADMIN_PASSWORD` | Bootstrap administrator password. Stored as a bcrypt hash. |
+| `DATABASE_URL` | Optional. Leave blank for ephemeral SQLite. A Neon URL keeps users and credits across sleep and deploys. |
+
+`SECRET_KEY` is created by Render (`generateValue`). Do not paste a secret into the repo.
+
+#### Memory
+
+The free instance has **512 MB RAM** and **0.1 CPU**. `intfloat/multilingual-e5-small` is not in the installed fastembed release. The multilingual ONNX models that are (`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` at about 0.22 GB on disk, `intfloat/multilingual-e5-large` at about 2.24 GB) plus ONNX Runtime and Chroma do not fit that limit, and baking a model into the image would also blow the build. The Blueprint sets `EMBEDDING_PROVIDER=hash`: a deterministic token hash, no download, loaded on the same path the tests use. Import plus demo ingestion stayed under 200 MB RSS locally.
+
+Persian retrieval still works. `QUERY_TRANSLATION=both` expands a Persian question with the engineering glossary and, when `GROQ_API_KEY` is set, an English rewrite. Lexical search runs on that English text. On a larger instance, set `EMBEDDING_PROVIDER=fastembed` to load `EMBEDDING_MODEL` on first embed instead of at image build.
+
+### 3. Hugging Face Space (optional, paid)
+
+Docker Spaces are paid on this account. Use them only if you want a second host. The free demo is Render.
+
+1. Create a Space, SDK **Docker**, hardware **CPU Basic** (or larger if you set `EMBEDDING_PROVIDER=fastembed`).
 2. Note the id, for example `hamid-ahmadiasl/engineering-ai-assistant`.
 3. In the GitHub repository secrets, set `HF_TOKEN` (a Hugging Face write token) and `HF_SPACE` (the `user/space` id).
 4. Push to `main`. `.github/workflows/huggingface-space.yml` copies the repo to the Space and prepends the Docker front matter (`sdk: docker`, `app_port: 7860`). The workflow skips itself when the secrets are missing.
@@ -219,9 +258,9 @@ Either:
    - `DATABASE_URL` if you want accounts to survive a restart
    - leave `DEMO_MODE` at the image default `true`
 
-The container listens on port 7860. On startup it embeds with fastembed on CPU and ingests the demo corpus into the local Chroma directories.
+The container listens on `$PORT` or 7860. On startup it ingests the demo corpus. With the image default `EMBEDDING_PROVIDER=fastembed`, the multilingual model downloads on first embed into `FASTEMBED_CACHE_PATH`.
 
-**Free Space disk is ephemeral.** A restart wipes SQLite, uploads, and the vector indexes. The demo corpus is rebuilt on boot. For real accounts and credits, put `DATABASE_URL` on a free hosted Postgres such as [Neon](https://neon.tech) or [Supabase](https://supabase.com). Chroma still lives on the Space disk and is rebuilt when the demo seed runs. User uploads need the database and the disk; treat uploads on a free Space as temporary unless you move both.
+**Space disk is ephemeral.** A restart wipes SQLite, uploads, and the vector indexes. The demo corpus is rebuilt on boot. For real accounts and credits, put `DATABASE_URL` on a free hosted Postgres such as [Neon](https://neon.tech) or [Supabase](https://supabase.com).
 
 ### Demo guard
 
@@ -249,5 +288,6 @@ app/static/     Chat, evidence panel, admin screen
 eval/           RQ4 traceability cases
 docs/           GitHub Pages project page
 deploy/         Hugging Face README front matter
+render.yaml     Render free-tier Blueprint
 tests/          Ingestion, isolation, citations, precedence, credits
 ```

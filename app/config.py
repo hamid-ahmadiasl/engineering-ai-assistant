@@ -176,7 +176,10 @@ def get_settings() -> Settings:
         llm_model=model,
         llm_api_key=key,
         embedding_provider=embed,
-        embedding_model=os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-small"),
+        embedding_model=os.getenv(
+            "EMBEDDING_MODEL",
+            "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        ),
         query_translation=os.getenv("QUERY_TRANSLATION", "both").strip().lower() or "both",
         credit_cost_per_query=_int("CREDIT_COST_PER_QUERY", 1),
         free_monthly_credits=_int("FREE_MONTHLY_CREDITS", 40),

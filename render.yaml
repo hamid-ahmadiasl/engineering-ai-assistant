@@ -1,0 +1,38 @@
+# Render Blueprint for the free Docker web service.
+# https://render.com/deploy?repo=https://github.com/hamid-ahmadiasl/engineering-ai-assistant
+#
+# Do not set PORT. Render injects it, and the image listens on $PORT (or 7860).
+# Leave DATABASE_URL empty to use SQLite on the ephemeral disk, or paste a Neon
+# Postgres URL so accounts survive sleep and deploys.
+services:
+  - type: web
+    name: engineering-ai-assistant
+    runtime: docker
+    plan: free
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: DEMO_MODE
+        value: "true"
+      - key: LLM_PRESET
+        value: groq
+      - key: LLM_PROVIDER
+        value: auto
+      - key: EMBEDDING_PROVIDER
+        value: hash
+      - key: QUERY_TRANSLATION
+        value: both
+      - key: SEED_ON_STARTUP
+        value: "true"

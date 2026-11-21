@@ -2,13 +2,15 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# PORT is intentionally unset. Render injects PORT at runtime; a Dockerfile
+# ENV PORT would override it. Local Docker and Hugging Face leave PORT empty
+# and the start command falls back to 7860.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PORT=7860 \
     DEMO_MODE=true \
     EMBEDDING_PROVIDER=fastembed \
-    EMBEDDING_MODEL=intfloat/multilingual-e5-small \
+    EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 \
     QUERY_TRANSLATION=both \
     FASTEMBED_CACHE_PATH=/app/models \
     LLM_PRESET=groq \
@@ -23,8 +25,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
-    && python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='intfloat/multilingual-e5-small', cache_dir='/app/models')"
+# The embedding model is not downloaded during the image build. fastembed loads
+# it on first use, and the Render blueprint sets EMBEDDING_PROVIDER=hash so the
+# free 512 MB instance never loads an ONNX model.
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY eval ./eval

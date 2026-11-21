@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import os
 import re
@@ -11,8 +12,11 @@ from pathlib import Path
 
 from app.config import get_settings
 
+log = logging.getLogger("engineering_assistant.embeddings")
+
 DIM = 384
 _TOKEN = re.compile(r"[a-z0-9]+")
+_fallback_logged = False
 
 
 def hash_embed(text: str) -> list[float]:
@@ -62,10 +66,15 @@ def embed_texts(texts: list[str], *, kind: str = "passage") -> list[list[float]]
         model = _fastembed_model(settings.embedding_model)
         return [list(map(float, vec)) for vec in model.embed(prepared)]
     except Exception:
-        if provider == "fastembed":
-            # Auto-style fallback so a missing model does not take the demo down.
-            # Explicit "fastembed" still falls back, but the health endpoint reports it.
-            return [hash_embed(t) for t in texts]
+        global _fallback_logged
+        if not _fallback_logged:
+            log.warning(
+                "fastembed model %s is unavailable; using hash embeddings",
+                settings.embedding_model,
+            )
+            _fallback_logged = True
+        # A missing or oversized model must not take the demo down.
+        # The health endpoint reports hash-fallback after this path.
         return [hash_embed(t) for t in texts]
 
 
@@ -80,4 +89,6 @@ def embedding_backend() -> str:
 
 
 def clear_embed_cache() -> None:
+    global _fallback_logged
+    _fallback_logged = False
     _fastembed_model.cache_clear()

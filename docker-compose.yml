@@ -6,10 +6,11 @@ services:
     environment:
       PORT: "7860"
       # Local compose is the full prototype. The image itself defaults DEMO_MODE=true
-      # for a public Hugging Face Space.
+      # for a public host. Render's blueprint overrides the embedding provider.
       DEMO_MODE: ${DEMO_MODE:-false}
       DEMO_ALLOW_REGISTRATION: ${DEMO_ALLOW_REGISTRATION:-true}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-fastembed}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
       LLM_PRESET: ${LLM_PRESET:-groq}
       LLM_PROVIDER: ${LLM_PROVIDER:-auto}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
@@ -26,7 +27,7 @@ services:
     volumes:
       - assistant-data:/app/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7860/api/health')"]
+      test: ["CMD", "python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('PORT', '7860') + '/api/health')"]
       interval: 30s
       timeout: 5s
       retries: 5
