@@ -31,6 +31,8 @@ FA = {
     "Document not found.": "سند پیدا نشد.",
     "Folder not found.": "پوشه پیدا نشد.",
     "Folders can only be nested two levels deep.": "پوشه‌ها حداکثر دو سطح می‌توانند تو در تو باشند.",
+    "Folders can only be nested three levels deep.": "پوشه‌ها حداکثر سه سطح می‌توانند تو در تو باشند.",
+    "Google Drive rejected the change. Connect Drive again and retry.": "گوگل درایو این تغییر را نپذیرفت. دوباره وصل شوید و تلاش کنید.",
     "Folder is not empty.": "پوشه خالی نیست.",
     "Codes and standards stay in their own section.": "کدها و استانداردها در بخش خودشان می‌مانند.",
     "Connect Google Drive before uploading files.": "پیش از بارگذاری، گوگل‌درایو خود را وصل کنید.",

@@ -47,7 +47,20 @@ from app.config import get_settings
 from app.credits import charge_or_http, ensure_period, quota_detail, reset_balance, set_plan, top_up
 from app.db import get_db, init_db, session_scope
 from app.ingest.pipeline import ALLOWED_SUFFIXES, delete_document, ingest_path
-from app.models import AccessCode, Conversation, Document, Folder, Membership, Message, Project, UsageEvent, User, utcnow
+from app.models import (
+    AccessCode,
+    Chunk,
+    Claim,
+    Conversation,
+    Document,
+    Folder,
+    Membership,
+    Message,
+    Project,
+    UsageEvent,
+    User,
+    utcnow,
+)
 from app.rag.llm import llm_check
 from app.rag.orchestrate import run_query
 from app.seed.bootstrap import bootstrap_admin, seed_demo
@@ -68,6 +81,7 @@ async def lifespan(_app: FastAPI):
         if settings.seed_on_startup:
             seed_demo(db)
             bootstrap_admin(db)
+        migrate_codes_into_folders(db)
     log.info(
         "ready demo_mode=%s llm=%s embed=%s stripe=%s",
         settings.demo_mode,
@@ -126,6 +140,8 @@ class ProjectIn(BaseModel):
     code: str = Field(min_length=2, max_length=80)
     description: str = ""
     equipment: str = ""
+    roles: list[str] = []
+    custom_folders: list[str] = []
 
 
 class ProjectPatch(BaseModel):
@@ -133,6 +149,7 @@ class ProjectPatch(BaseModel):
     code: str | None = None
     description: str | None = None
     equipment: str | None = None
+    roles: list[str] | None = None
 
 
 class ScopesIn(BaseModel):
@@ -153,6 +170,7 @@ class FolderPatch(BaseModel):
 
 class DocumentMove(BaseModel):
     folder_id: str | None = None
+    title: str | None = None
 
 
 class ChatIn(BaseModel):
@@ -374,22 +392,22 @@ def create_project(body: ProjectIn, user: User = Depends(current_user), db: Sess
         equipment=(body.equipment or "").strip(),
         visibility="private",
         owner_id=user.id,
-        precedence_json=json.dumps(
-            {
-                "summary": "Mechanical requirements follow the project specification. Process conditions follow the latest datasheet. Vendor offers do not govern.",
-                "order": [
-                    "Project specification, latest revision, for mechanical requirements",
-                    "Datasheet, latest revision, for process conditions",
-                    "Code editions named by the specification",
-                    "Vendor documents as offers until a deviation is approved",
-                ],
-            }
-        ),
+        precedence_json=json.dumps(_default_precedence()),
     )
     db.add(project)
     db.flush()
     db.add(Membership(project_id=project.id, user_id=user.id, role="owner"))
+    created: list[Folder] = []
+    for role in body.roles:
+        if role not in ROLE_FOLDERS:
+            continue
+        created.append(_new_folder(db, project_id=project.id, name=ROLE_FOLDERS[role], role=role, owner_id=user.id))
+    for name in body.custom_folders:
+        cleaned = name.strip()
+        if cleaned:
+            created.append(_new_folder(db, project_id=project.id, name=cleaned, role="", owner_id=user.id))
     db.flush()
+    _mirror_project_drive(user, db, project, created)
     return _public_project(project, "owner")
 
 
@@ -415,6 +433,21 @@ def update_project(
         project.description = body.description.strip()
     if body.equipment is not None:
         project.equipment = body.equipment.strip()
+    if body.roles is not None:
+        current = {}
+        if project.precedence_json:
+            try:
+                current = json.loads(project.precedence_json)
+            except json.JSONDecodeError:
+                current = {}
+        chosen = [role for role in body.roles if role in ROLE_FOLDERS or role == "general"]
+        for role in ("owner", "consultant", "third_party", "vendor", "general"):
+            if role not in chosen:
+                chosen.append(role)
+        current["roles"] = chosen
+        project.precedence_json = json.dumps(current)
+    if project.drive_folder_id and (body.code is not None or body.name is not None):
+        _rename_drive_node(user, project.drive_folder_id, f"{project.code} - {project.name}")
     return _public_project(project, "owner" if user.role != "admin" else "admin")
 
 
@@ -426,10 +459,37 @@ def remove_project(project_id: str, user: User = Depends(current_user), db: Sess
     for document in docs:
         _remove_drive_file(db, document)
         delete_document(db, document)
+    for row in db.scalars(select(Folder).where(Folder.project_id == project.id)):
+        db.delete(row)
     for row in db.scalars(select(Membership).where(Membership.project_id == project.id)):
         db.delete(row)
+    if project.drive_folder_id:
+        _delete_drive_node(user, project.drive_folder_id)
     db.delete(project)
     return {"ok": True}
+
+
+ROLE_FOLDERS = {
+    "owner": "Owner",
+    "consultant": "Consultant",
+    "vendor": "Vendor",
+    "third_party": "Third Party",
+}
+MAX_FOLDER_DEPTH = 3
+
+
+def _default_precedence() -> dict:
+    return {
+        "summary": "Owner outranks Consultant, then Third Party, then Vendor. General codes are the baseline.",
+        "roles": ["owner", "consultant", "third_party", "vendor", "general"],
+        "order": [
+            "Owner folder",
+            "Consultant folder",
+            "Third Party folder",
+            "Vendor folder",
+            "General Codes and STD as the baseline",
+        ],
+    }
 
 
 def _public_folder(folder: Folder) -> dict:
@@ -438,17 +498,107 @@ def _public_folder(folder: Folder) -> dict:
         "project_id": folder.project_id,
         "parent_id": folder.parent_id,
         "name": folder.name,
+        "role": folder.role or "",
+        "owner_id": folder.owner_id or "",
     }
 
 
-def _folder_parent_ok(db: Session, project_id: str, parent_id: str | None) -> None:
+def _new_folder(
+    db: Session,
+    *,
+    project_id: str,
+    name: str,
+    role: str,
+    owner_id: str | None,
+    parent_id: str | None = None,
+) -> Folder:
+    folder = Folder(
+        id=str(uuid.uuid4()),
+        project_id=project_id,
+        parent_id=parent_id,
+        name=name.strip(),
+        role=role,
+        owner_id=owner_id,
+        drive_folder_id="",
+        created_at=utcnow(),
+    )
+    db.add(folder)
+    db.flush()
+    return folder
+
+
+def _folder_depth(db: Session, folder: Folder) -> int:
+    depth = 1
+    current = folder
+    seen: set[str] = set()
+    while current.parent_id and current.parent_id not in seen:
+        seen.add(current.id)
+        parent = db.get(Folder, current.parent_id)
+        if parent is None:
+            break
+        depth += 1
+        current = parent
+    return depth
+
+
+def _folder_parent_ok(db: Session, project_id: str, parent_id: str | None, owner_id: str | None = None) -> Folder | None:
     if not parent_id:
-        return
+        return None
     parent = db.get(Folder, parent_id)
     if parent is None or parent.project_id != project_id:
         raise HTTPException(status_code=404, detail="Folder not found.")
-    if parent.parent_id:
-        raise HTTPException(status_code=400, detail="Folders can only be nested two levels deep.")
+    if owner_id and parent.owner_id not in {None, "", owner_id}:
+        raise HTTPException(status_code=404, detail="Folder not found.")
+    if _folder_depth(db, parent) >= MAX_FOLDER_DEPTH:
+        raise HTTPException(status_code=400, detail="Folders can only be nested three levels deep.")
+    return parent
+
+
+def _inherited_role(db: Session, folder: Folder | None) -> str:
+    current = folder
+    seen: set[str] = set()
+    while current is not None and current.id not in seen:
+        seen.add(current.id)
+        if current.role in ROLE_FOLDERS or current.role == "general":
+            return current.role
+        if not current.parent_id:
+            break
+        current = db.get(Folder, current.parent_id)
+    return ""
+
+
+def migrate_codes_into_folders(db: Session) -> None:
+    """Move legacy per-project standards into a Codes & Standards folder."""
+    projects = list(db.scalars(select(Project)))
+    for project in projects:
+        loose = list(
+            db.scalars(
+                select(Document).where(
+                    Document.project_id == project.id,
+                    Document.doc_type == "standard",
+                    Document.folder_id.is_(None),
+                )
+            )
+        )
+        if not loose:
+            continue
+        folder = db.scalar(
+            select(Folder).where(
+                Folder.project_id == project.id,
+                Folder.parent_id.is_(None),
+                Folder.name == "Codes & Standards",
+            )
+        )
+        if folder is None:
+            folder = _new_folder(
+                db,
+                project_id=project.id,
+                name="Codes & Standards",
+                role="standards",
+                owner_id=project.owner_id,
+            )
+        for document in loose:
+            document.folder_id = folder.id
 
 
 @app.get("/api/projects/{project_id}/folders")
@@ -468,17 +618,28 @@ def create_folder(
 ) -> dict:
     project = get_project(db, project_id)
     assert_write(db, project, user)
-    _folder_parent_ok(db, project.id, body.parent_id)
-    folder = Folder(
-        id=str(uuid.uuid4()),
+    parent = _folder_parent_ok(db, project.id, body.parent_id)
+    role = _inherited_role(db, parent)
+    folder = _new_folder(
+        db,
         project_id=project.id,
+        name=body.name,
+        role=role,
+        owner_id=user.id,
         parent_id=body.parent_id,
-        name=body.name.strip(),
-        created_at=utcnow(),
     )
-    db.add(folder)
-    db.flush()
+    _mirror_new_folder(user, db, project, folder)
     return _public_folder(folder)
+
+
+def _assert_folder_write(db: Session, folder: Folder, user: User) -> Project | None:
+    if folder.project_id:
+        project = get_project(db, folder.project_id)
+        assert_write(db, project, user)
+        return project
+    if folder.owner_id != user.id and user.role != "admin":
+        raise HTTPException(status_code=403, detail="You do not have access to that project.")
+    return None
 
 
 @app.patch("/api/folders/{folder_id}")
@@ -491,8 +652,10 @@ def rename_folder(
     folder = db.get(Folder, folder_id)
     if folder is None:
         raise HTTPException(status_code=404, detail="Folder not found.")
-    assert_write(db, get_project(db, folder.project_id), user)
+    _assert_folder_write(db, folder, user)
     folder.name = body.name.strip()
+    if folder.drive_folder_id:
+        _rename_drive_node(user, folder.drive_folder_id, folder.name)
     return _public_folder(folder)
 
 
@@ -506,30 +669,40 @@ def remove_folder(
     folder = db.get(Folder, folder_id)
     if folder is None:
         raise HTTPException(status_code=404, detail="Folder not found.")
-    assert_write(db, get_project(db, folder.project_id), user)
-    rows = list(db.scalars(select(Folder).where(Folder.project_id == folder.project_id)))
+    project = _assert_folder_write(db, folder, user)
+    rows = list(db.scalars(select(Folder).where(Folder.project_id == folder.project_id, Folder.owner_id == folder.owner_id)))
+    if folder.project_id:
+        rows = list(db.scalars(select(Folder).where(Folder.project_id == folder.project_id)))
     children: dict[str | None, list[Folder]] = {}
     for row in rows:
         children.setdefault(row.parent_id, []).append(row)
-    doomed = []
+    doomed_ids: list[str] = []
     stack = [folder.id]
     while stack:
         current = stack.pop()
-        doomed.append(current)
+        doomed_ids.append(current)
         stack.extend(item.id for item in children.get(current, []))
-    docs = list(db.scalars(select(Document).where(Document.folder_id.in_(doomed))))
-    if (len(doomed) > 1 or docs) and not force:
+    docs = list(db.scalars(select(Document).where(Document.folder_id.in_(doomed_ids))))
+    if (len(doomed_ids) > 1 or docs) and not force:
         raise HTTPException(status_code=409, detail="Folder is not empty.")
+    doomed = [row for row in rows if row.id in set(doomed_ids)]
     for document in docs:
         document.folder_id = folder.parent_id
-    for row in rows:
-        if row.id in doomed:
-            db.delete(row)
+        _apply_document_role(db, document, folder.parent_id)
+        if project is not None:
+            _relocate_document(user, db, project, document)
+    for row in sorted(doomed, key=lambda item: _folder_depth(db, item), reverse=True):
+        if row.drive_folder_id:
+            _delete_drive_node(user, row.drive_folder_id)
+        db.delete(row)
     return {"ok": True}
 
 
-def _expand_folders(db: Session, project_id: str, folder_ids: list[str]) -> set[str]:
-    rows = list(db.scalars(select(Folder).where(Folder.project_id == project_id)))
+def _expand_folders(db: Session, project_id: str, folder_ids: list[str], owner_id: str | None = None) -> set[str]:
+    stmt = select(Folder).where(Folder.project_id == project_id)
+    if owner_id:
+        stmt = stmt.where(Folder.owner_id == owner_id)
+    rows = list(db.scalars(stmt))
     children: dict[str | None, list[str]] = {}
     for row in rows:
         children.setdefault(row.parent_id, []).append(row.id)
@@ -657,6 +830,136 @@ def _original_bytes(upload: UploadFile) -> tuple[str, bytes]:
     return name, data
 
 
+def _drive_client(user: User):
+    from app.drive import client_for_token, decrypt_token
+
+    settings = get_settings()
+    if not settings.google_configured:
+        return None
+    token = decrypt_token(getattr(user, "drive_refresh_token", "") or "")
+    if not token:
+        return None
+    return client_for_token(token)
+
+
+def _project_drive_name(project: Project) -> str:
+    return f"{project.code} - {project.name}"
+
+
+def _drive_chain(db: Session, project: Project | None, folder_id: str | None) -> list[str]:
+    from app.drive import GENERAL_FOLDER, ROOT_FOLDER
+
+    if project is None:
+        return [ROOT_FOLDER, GENERAL_FOLDER, *_folder_path_names(db, folder_id)]
+    return [ROOT_FOLDER, _project_drive_name(project), *_folder_path_names(db, folder_id)]
+
+
+def _drive_or_http(action):
+    from app.drive import DriveError
+
+    try:
+        return action()
+    except DriveError as exc:
+        log.warning("Drive call failed: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="Google Drive rejected the change. Connect Drive again and retry.",
+        ) from exc
+
+
+def _mirror_project_drive(user: User, db: Session, project: Project, folders: list[Folder]) -> None:
+    client = _drive_client(user)
+    if client is None:
+        return
+    from app.drive import ROOT_FOLDER
+
+    def go() -> None:
+        project.drive_folder_id = client.ensure_path([ROOT_FOLDER, _project_drive_name(project)])
+        pending = {folder.id: folder for folder in folders}
+        for _ in range(len(pending) + 1):
+            ready = [folder for folder in pending.values() if not folder.parent_id or folder.parent_id not in pending]
+            if not ready:
+                break
+            for folder in ready:
+                folder.drive_folder_id = client.ensure_path(_drive_chain(db, project, folder.id))
+                pending.pop(folder.id, None)
+
+    _drive_or_http(go)
+
+
+def _mirror_new_folder(user: User, db: Session, project: Project | None, folder: Folder) -> None:
+    client = _drive_client(user)
+    if client is None:
+        return
+
+    def go() -> None:
+        folder.drive_folder_id = client.ensure_path(_drive_chain(db, project, folder.id))
+        if project is not None and not project.drive_folder_id:
+            from app.drive import ROOT_FOLDER
+
+            project.drive_folder_id = client.ensure_path([ROOT_FOLDER, _project_drive_name(project)])
+
+    _drive_or_http(go)
+
+
+def _relocate_document(user: User, db: Session, project: Project | None, document: Document) -> None:
+    client = _drive_client(user)
+    if client is None or not document.drive_file_id:
+        return
+    target = None if document.scope == "personal" else project
+    _drive_or_http(lambda: client.relocate(document.drive_file_id, _drive_chain(db, target, document.folder_id)))
+
+
+def _rename_drive_node(user: User, file_id: str, name: str) -> None:
+    client = _drive_client(user)
+    if client is None or not file_id:
+        return
+    _drive_or_http(lambda: client.rename(file_id, name))
+
+
+def _delete_drive_node(user: User, file_id: str) -> None:
+    client = _drive_client(user)
+    if client is None or not file_id:
+        return
+    from app.drive import DriveError
+
+    try:
+        client.delete(file_id)
+    except DriveError as exc:
+        log.warning("Drive folder delete failed: %s", exc)
+
+
+def _apply_document_role(db: Session, document: Document, folder_id: str | None) -> str:
+    folder = db.get(Folder, folder_id) if folder_id else None
+    role = _inherited_role(db, folder)
+    if document.scope == "personal" and not role:
+        role = "general"
+    for chunk in db.scalars(select(Chunk).where(Chunk.document_id == document.id)):
+        chunk.folder_role = role
+    for claim in db.scalars(select(Claim).where(Claim.document_id == document.id)):
+        claim.folder_role = role
+    return role
+
+
+def _standards_folder(db: Session, project: Project) -> Folder:
+    folder = db.scalar(
+        select(Folder).where(
+            Folder.project_id == project.id,
+            Folder.parent_id.is_(None),
+            Folder.name == "Codes & Standards",
+        )
+    )
+    if folder is None:
+        folder = _new_folder(
+            db,
+            project_id=project.id,
+            name="Codes & Standards",
+            role="standards",
+            owner_id=project.owner_id,
+        )
+    return folder
+
+
 def _keep_original(
     user: User,
     *,
@@ -669,12 +972,12 @@ def _keep_original(
 ) -> tuple[Path, dict]:
     """Save the original in the uploader's Drive, or on local disk when Drive is off."""
     from app.drive import (
+        GENERAL_FOLDER,
         GLOBAL_FOLDER,
         ROOT_FOLDER,
         DriveError,
         client_for_token,
         decrypt_token,
-        section_folder,
         write_local_copy,
     )
 
@@ -686,11 +989,11 @@ def _keep_original(
         return path, {"storage": kind, "drive_file_id": "", "stored_path": str(path)}
 
     if scope == "personal":
-        folders = [ROOT_FOLDER, "General library"]
+        folders = [ROOT_FOLDER, GENERAL_FOLDER, *(folder_names or [])]
     elif project is None:
         folders = [ROOT_FOLDER, GLOBAL_FOLDER]
     else:
-        folders = [ROOT_FOLDER, project.code, section_folder(doc_type, scope), *(folder_names or [])]
+        folders = [ROOT_FOLDER, _project_drive_name(project), *(folder_names or [])]
     if not settings.google_configured:
         return local("")
     token = decrypt_token(user.drive_refresh_token or "")
@@ -774,12 +1077,23 @@ async def upload_project_document(
     filename, data = _original_bytes(file)
     assert_upload_allowed(db, user, len(data))
     chosen_folder = (folder_id or "").strip() or None
-    if chosen_folder and (doc_type or "").strip().lower() != "standard":
-        folder = db.get(Folder, chosen_folder)
-        if folder is None or folder.project_id != project.id:
-            raise HTTPException(status_code=404, detail="Folder not found.")
-    else:
-        chosen_folder = None
+    if (doc_type or "").strip().lower() == "standard" and not chosen_folder:
+        standards = _standards_folder(db, project)
+        _mirror_new_folder(user, db, project, standards)
+        chosen_folder = standards.id
+    folder = db.get(Folder, chosen_folder) if chosen_folder else None
+    if chosen_folder and (folder is None or folder.project_id != project.id):
+        raise HTTPException(status_code=404, detail="Folder not found.")
+    meta = _upload_meta(
+        filename=filename,
+        title=title,
+        doc_type=doc_type,
+        revision=revision,
+        edition=edition,
+        standard_name=standard_name,
+        part=part,
+    )
+    meta["folder_role"] = _inherited_role(db, folder)
     path, stored = _keep_original(
         user,
         project=project,
@@ -796,15 +1110,7 @@ async def upload_project_document(
             scope="project",
             project_id=project.id,
             uploaded_by=user.id,
-            meta=_upload_meta(
-                filename=path.name,
-                title=title,
-                doc_type=doc_type,
-                revision=revision,
-                edition=edition,
-                standard_name=standard_name,
-                part=part,
-            ),
+            meta=meta,
         )
     except ValueError as exc:
         if stored.get("drive_file_id"):
@@ -845,14 +1151,21 @@ def move_document(
     document = db.get(Document, document_id)
     if document is None or document.project_id != project.id:
         raise HTTPException(status_code=404, detail="Document not found.")
-    if document.doc_type == "standard":
-        raise HTTPException(status_code=400, detail="Codes and standards stay in their own section.")
-    target = (body.folder_id or "").strip() or None
-    if target:
-        folder = db.get(Folder, target)
-        if folder is None or folder.project_id != project.id:
-            raise HTTPException(status_code=404, detail="Folder not found.")
-    document.folder_id = target
+    if "folder_id" in body.model_fields_set:
+        target = (body.folder_id or "").strip() or None
+        if target:
+            folder = db.get(Folder, target)
+            if folder is None or folder.project_id != project.id:
+                raise HTTPException(status_code=404, detail="Folder not found.")
+        document.folder_id = target
+        _apply_document_role(db, document, target)
+        _relocate_document(user, db, project, document)
+    if body.title is not None:
+        document.title = body.title.strip()[:300] or document.filename
+        for chunk in db.scalars(select(Chunk).where(Chunk.document_id == document.id)):
+            chunk.title = document.title
+        for claim in db.scalars(select(Claim).where(Claim.document_id == document.id)):
+            claim.title = document.title
     return _public_document(document)
 
 
@@ -921,7 +1234,14 @@ async def upload_kb_document(
     return _public_document(document)
 
 
-def _chat_scopes(db: Session, user: User, body: ChatIn) -> tuple[bool, list[Project]]:
+def _chat_scopes(db: Session, user: User, body: ChatIn) -> tuple[bool, bool, list[Project]]:
+    """Demo notes stay on the anonymous trial. Signed-in search uses that user's files."""
+
+    def flags(want_general: bool) -> tuple[bool, bool]:
+        if user.is_anonymous:
+            return want_general, False
+        return False, want_general
+
     if body.scopes is not None:
         projects = []
         for project_id in body.scopes.project_ids:
@@ -929,18 +1249,19 @@ def _chat_scopes(db: Session, user: User, body: ChatIn) -> tuple[bool, list[Proj
             assert_read(db, project, user)
             if project.id not in {item.id for item in projects}:
                 projects.append(project)
-        include_global = body.scopes.include_global
-        if not include_global and not projects:
+        include_demo, include_personal = flags(body.scopes.include_global)
+        if not include_demo and not include_personal and not projects:
             raise HTTPException(status_code=400, detail="Select at least one knowledge scope.")
-        return include_global, projects
+        return include_demo, include_personal, projects
     if body.project_id:
         project = get_project(db, body.project_id)
         assert_read(db, project, user)
-        return True, [project]
+        include_demo, include_personal = flags(False)
+        return include_demo, include_personal, [project]
     if user.is_anonymous:
         demo = db.scalar(select(Project).where(Project.code == "HX-2201"))
-        return True, [demo] if demo else []
-    return True, []
+        return True, False, [demo] if demo else []
+    return False, True, []
 
 
 @app.get("/api/library/documents")
@@ -958,6 +1279,37 @@ def library_documents(user: User = Depends(current_user), db: Session = Depends(
     return {"documents": [_public_document(doc) for doc in docs]}
 
 
+@app.get("/api/library/folders")
+def library_folders(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    if user.is_anonymous:
+        return {"folders": []}
+    rows = db.scalars(
+        select(Folder).where(Folder.project_id == "", Folder.owner_id == user.id).order_by(Folder.name)
+    ).all()
+    return {"folders": [_public_folder(row) for row in rows]}
+
+
+@app.post("/api/library/folders")
+def create_library_folder(
+    body: FolderIn,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    if user.is_anonymous or user.plan == "trial":
+        raise HTTPException(status_code=403, detail="The trial can read the demo project. Uploads and edits need a signed-in account.")
+    parent = _folder_parent_ok(db, "", body.parent_id, owner_id=user.id)
+    folder = _new_folder(
+        db,
+        project_id="",
+        name=body.name,
+        role="general",
+        owner_id=user.id,
+        parent_id=parent.id if parent else None,
+    )
+    _mirror_new_folder(user, db, None, folder)
+    return _public_folder(folder)
+
+
 @app.post("/api/library/documents")
 async def upload_library_document(
     file: UploadFile = File(...),
@@ -965,6 +1317,7 @@ async def upload_library_document(
     doc_type: str = Form("reference"),
     revision: str = Form(""),
     edition: str = Form(""),
+    folder_id: str = Form(""),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -973,7 +1326,19 @@ async def upload_library_document(
     rate_limit(db, f"upload:{user.id}", 30, hours=1)
     filename, data = _original_bytes(file)
     assert_upload_allowed(db, user, len(data))
-    path, stored = _keep_original(user, project=None, filename=filename, data=data, doc_type=doc_type, scope="personal")
+    chosen = (folder_id or "").strip() or None
+    folder = db.get(Folder, chosen) if chosen else None
+    if chosen and (folder is None or folder.project_id or folder.owner_id != user.id):
+        raise HTTPException(status_code=404, detail="Folder not found.")
+    path, stored = _keep_original(
+        user,
+        project=None,
+        filename=filename,
+        data=data,
+        doc_type=doc_type,
+        scope="personal",
+        folder_names=_folder_path_names(db, chosen) if chosen else None,
+    )
     document = ingest_path(
         db,
         path,
@@ -981,17 +1346,41 @@ async def upload_library_document(
         project_id=None,
         uploaded_by=user.id,
         meta={
-            "title": title or path.stem,
+            "title": title or Path(filename).stem,
             "doc_type": doc_type or "reference",
             "revision": revision,
             "edition": edition,
             "hierarchy_level": 6,
             "owner_id": user.id,
+            "folder_role": "general",
             "corpus_label": "Personal general library. Visible only to you.",
             "statement_class_default": "informative",
         },
     )
     _apply_storage(document, stored)
+    if chosen:
+        document.folder_id = chosen
+    return _public_document(document)
+
+
+@app.patch("/api/library/documents/{document_id}")
+def rename_library_document(
+    document_id: str,
+    body: DocumentMove,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    document = db.get(Document, document_id)
+    if document is None or document.scope != "personal":
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if document.uploaded_by != user.id and user.role != "admin":
+        raise HTTPException(status_code=403, detail="You do not have access to that project.")
+    if body.title is not None:
+        document.title = body.title.strip()[:300] or document.filename
+        for chunk in db.scalars(select(Chunk).where(Chunk.document_id == document.id)):
+            chunk.title = document.title
+        for claim in db.scalars(select(Claim).where(Claim.document_id == document.id)):
+            claim.title = document.title
     return _public_document(document)
 
 
@@ -1012,7 +1401,7 @@ def chat(body: ChatIn, request: Request, user: User = Depends(current_user), db:
     settings = get_settings()
     if settings.demo_mode:
         rate_limit(db, f"chat:{user.id}", settings.demo_chat_per_hour, hours=1)
-    include_global, projects = _chat_scopes(db, user, body)
+    include_demo, include_personal, projects = _chat_scopes(db, user, body)
     project = projects[0] if len(projects) == 1 else None
     charge_or_http(db, user, settings.credit_cost_per_query, "chat", body.message[:240])
     mentioned = _mentioned_documents(db, user, project, body.document_ids)
@@ -1023,11 +1412,24 @@ def chat(body: ChatIn, request: Request, user: User = Depends(current_user), db:
             chosen = body.scopes.folders.get(item.id) or []
             if chosen:
                 folder_documents[item.id] = _documents_in_folders(db, item.id, chosen)
+        general_folders = body.scopes.folders.get("general") or []
+        if general_folders and include_personal:
+            expanded = _expand_folders(db, "", general_folders, owner_id=user.id)
+            folder_documents["personal"] = set(
+                db.scalars(
+                    select(Document.id).where(
+                        Document.scope == "personal",
+                        Document.uploaded_by == user.id,
+                        Document.folder_id.in_(expanded),
+                    )
+                )
+            )
     result = run_query(
         db,
         project=project,
         projects=projects,
-        include_global=include_global,
+        include_global=include_demo,
+        include_personal=include_personal,
         owner_id=None if user.is_anonymous else user.id,
         message=body.message.strip(),
         mode=body.mode,

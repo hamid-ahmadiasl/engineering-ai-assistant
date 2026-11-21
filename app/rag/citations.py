@@ -55,6 +55,7 @@ def format_citation(chunk, citation_id: str) -> dict:
             getattr(chunk, "statement_class", ""), getattr(chunk, "statement_class", "")
         ),
         "doc_type": getattr(chunk, "doc_type", "") or "",
+        "folder_role": getattr(chunk, "folder_role", "") or "",
         "store": getattr(chunk, "scope", "") or "",
         "project_id": getattr(chunk, "project_id", "") or "",
         "corpus_label": getattr(chunk, "corpus_label", "") or "",

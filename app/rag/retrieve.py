@@ -172,6 +172,7 @@ def retrieve(
     document_ids: list[str] | None = None,
     project_ids: list[str] | None = None,
     include_global: bool = True,
+    include_personal: bool = False,
     owner_id: str | None = None,
     folder_documents: dict[str, set[str]] | None = None,
 ) -> list[Chunk]:
@@ -179,20 +180,26 @@ def retrieve(
     if include_global:
         rankings.append(lexical_search(db, query, scope="global", project_id=None, k=k))
         rankings.append(vector_search(query, scope="global", project_id=None, k=k, db=db))
-        if owner_id:
-            rankings.append(lexical_search(db, query, scope="personal", project_id=None, k=k, owner_id=owner_id))
-            rankings.append(vector_search(query, scope="personal", project_id=None, k=k, db=db, owner_id=owner_id))
+    if include_personal and owner_id:
+        rankings.append(lexical_search(db, query, scope="personal", project_id=None, k=k, owner_id=owner_id))
+        rankings.append(vector_search(query, scope="personal", project_id=None, k=k, db=db, owner_id=owner_id))
     selected = project_ids if project_ids is not None else ([project_id] if project_id else [])
     for pid in selected:
         rankings.append(lexical_search(db, query, scope="project", project_id=pid, k=k))
         rankings.append(vector_search(query, scope="project", project_id=pid, k=k, db=db))
     fused = reciprocal_rank_fusion(rankings, k=k)
     if folder_documents:
-        fused = [
-            chunk
-            for chunk in fused
-            if chunk.project_id not in folder_documents or chunk.document_id in folder_documents[chunk.project_id]
-        ]
+        personal_ids = folder_documents.get("personal")
+
+        def _kept(chunk: Chunk) -> bool:
+            if chunk.scope == "personal" and personal_ids is not None:
+                return chunk.document_id in personal_ids
+            allowed = folder_documents.get(chunk.project_id or "")
+            if allowed is None:
+                return True
+            return chunk.document_id in allowed
+
+        fused = [chunk for chunk in fused if _kept(chunk)]
     if not document_ids:
         return fused
     allowed = {doc_id for doc_id in document_ids if doc_id}

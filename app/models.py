@@ -81,6 +81,7 @@ class Project(Base):
     visibility: Mapped[str] = mapped_column(String(20), default="private")
     owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     precedence_json: Mapped[str] = mapped_column(Text, default="")
+    drive_folder_id: Mapped[str] = mapped_column(String(128), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
@@ -101,6 +102,9 @@ class Folder(Base):
     project_id: Mapped[str] = mapped_column(String(36), index=True)
     parent_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(String(40), default="")
+    drive_folder_id: Mapped[str] = mapped_column(String(128), default="")
+    owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
@@ -149,6 +153,7 @@ class Chunk(Base):
     filename: Mapped[str] = mapped_column(String(300), default="")
     corpus_label: Mapped[str] = mapped_column(String(200), default="")
     owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    folder_role: Mapped[str] = mapped_column(String(40), default="")
 
 
 class Claim(Base):
@@ -171,6 +176,7 @@ class Claim(Base):
     edition: Mapped[str] = mapped_column(String(80), default="")
     hierarchy_level: Mapped[int] = mapped_column(Integer, default=5)
     filename: Mapped[str] = mapped_column(String(300), default="")
+    folder_role: Mapped[str] = mapped_column(String(40), default="")
 
 
 class UsageEvent(Base):

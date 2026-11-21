@@ -65,6 +65,22 @@ def test_lower_datasheet_pressure_stays_a_conflict():
     assert roles["VD-HX-2201"] == "deviation"
 
 
+def test_folder_role_outranks_vendor_and_general_is_baseline():
+    claims = [
+        _claim(title="Vendor offer", value="14 barg", doc_type="vendor", folder_role="vendor"),
+        _claim(title="Owner spec", value="12 barg", doc_type="upload", folder_role="owner"),
+        _claim(title="General code", value="10 barg", doc_type="reference", folder_role="general"),
+    ]
+    conflict = compare_claims(claims, role_order=["consultant", "owner", "third_party", "vendor", "general"])[0]
+    assert conflict.governing is not None
+    assert conflict.governing.document == "Owner spec"
+    assert conflict.governing.folder_role == "owner"
+    general = next(item for item in conflict.observed if item.folder_role == "general")
+    assert general.role == "conflict"
+    vendor = next(item for item in conflict.observed if item.folder_role == "vendor")
+    assert vendor.role == "deviation"
+
+
 def test_demo_compare_reports_governing_specification(client):
     with session_scope() as db:
         seed_demo(db)

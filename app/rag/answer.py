@@ -266,7 +266,7 @@ def extractive_answer(mode: str, question: str, chunks: list, conflicts: list[di
             {
                 "kind": "ai_interpretation",
                 "text": (
-                    "No passage in the global knowledge notes or the selected project documents answers this. "
+                    "No passage in the selected documents answers this. "
                     "Nothing was inferred beyond that gap."
                 ),
                 "citation_ids": [],
@@ -276,7 +276,8 @@ def extractive_answer(mode: str, question: str, chunks: list, conflicts: list[di
 
     if not any(c["statement_class"] == "explicit_requirement" for c in citations):
         limitations.append("No explicit requirement was retrieved for this question. Do not treat the answer as a code rule.")
-    limitations.append("Demo knowledge notes are original explanations. They are not a licensed standard.")
+    if any(item.get("store") == "global" for item in citations):
+        limitations.append("Demo knowledge notes are original explanations. They are not a licensed standard.")
     limitations.append(DISCLAIMER)
     if mode == "troubleshoot":
         limitations.append(
@@ -347,10 +348,10 @@ def to_persian(result: dict) -> dict:
             text = "برداشت دستیار از متن منبع، بدون ترجمه اعداد و شناسه‌ها: " + block["text"]
         blocks.append({**block, "text": text})
     result["blocks"] = blocks
-    limitations = [
-        "یادداشت‌های نمایشی متن استاندارد دارای مجوز نیستند.",
-        DISCLAIMER_FA,
-    ]
+    limitations = []
+    if any(item.get("store") == "global" for item in result.get("citations") or []):
+        limitations.append("یادداشت‌های نمایشی متن استاندارد دارای مجوز نیستند.")
+    limitations.append(DISCLAIMER_FA)
     if result.get("mode") == "troubleshoot":
         limitations.append("گزینه‌ها فقط ملاحظه‌اند و جایگزین محاسبه استاندارد دارای مجوز نمی‌شوند.")
     result["limitations"] = limitations
@@ -422,12 +423,13 @@ def answer_from_evidence(mode: str, question: str, chunks: list, conflicts: list
         )["blocks"]
     limitations = [str(item) for item in parsed.get("limitations") or [] if str(item).strip()]
     disclaimer = DISCLAIMER_FA if lang == "fa" else DISCLAIMER
-    note = (
-        "یادداشت‌های نمایشی متن استاندارد دارای مجوز نیستند."
-        if lang == "fa"
-        else "Demo knowledge notes are original explanations. They are not a licensed standard."
-    )
-    limitations.append(note)
+    if any(item.get("store") == "global" for item in citations):
+        note = (
+            "یادداشت‌های نمایشی متن استاندارد دارای مجوز نیستند."
+            if lang == "fa"
+            else "Demo knowledge notes are original explanations. They are not a licensed standard."
+        )
+        limitations.append(note)
     if disclaimer not in limitations:
         limitations.append(disclaimer)
     labels = FA_LABELS if lang == "fa" else STATEMENT_LABELS

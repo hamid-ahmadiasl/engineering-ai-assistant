@@ -112,7 +112,7 @@ def test_personal_library_is_not_visible_to_another_user(client):
     assert own.status_code == 200, own.text
     own_blob = " ".join(item["excerpt"] for item in own.json()["citations"])
     assert "ALICE-PRIVATE-LIBRARY" in own_blob
-    assert any(item["store_label"] == "General codes and standards" for item in own.json()["citations"])
+    assert any(item["store_label"] == "General Codes and STD" for item in own.json()["citations"])
 
 
 def test_cross_project_values_are_not_one_conflict():

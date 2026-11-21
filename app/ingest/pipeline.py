@@ -103,6 +103,7 @@ def ingest_path(
                 filename=document.filename,
                 corpus_label=document.corpus_label,
                 owner_id=merged.get("owner_id") or (uploaded_by if scope == "personal" else None),
+                folder_role=str(merged.get("folder_role") or ""),
             )
         )
     db.add_all(chunk_rows)
@@ -128,6 +129,7 @@ def ingest_path(
                 edition=document.edition,
                 hierarchy_level=document.hierarchy_level,
                 filename=document.filename,
+                folder_role=str(merged.get("folder_role") or ""),
             )
         )
 

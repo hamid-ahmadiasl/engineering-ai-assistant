@@ -49,6 +49,25 @@ DOC_RANK_PROCESS = {
     "handbook": 5,
 }
 
+# Project folders outrank one another in this order. General codes are the baseline.
+DEFAULT_ROLE_ORDER = ["owner", "consultant", "third_party", "vendor", "general"]
+ROLE_LABELS = {
+    "owner": "Owner",
+    "consultant": "Consultant",
+    "third_party": "Third Party",
+    "vendor": "Vendor",
+    "general": "General",
+    "standards": "Codes & Standards",
+}
+ROLE_LABELS_FA = {
+    "owner": "کارفرما",
+    "consultant": "مشاور",
+    "third_party": "شخص ثالث",
+    "vendor": "فروشنده",
+    "general": "عمومی",
+    "standards": "کدها و استانداردها",
+}
+
 LABELS_FA = {
     "shell_design_pressure": "فشار طراحی سمت پوسته",
     "tube_design_pressure": "فشار طراحی سمت لوله",
@@ -113,6 +132,7 @@ class Observed:
     page: str
     statement_class: str
     role: str
+    folder_role: str = ""
 
 
 @dataclass
@@ -140,6 +160,8 @@ class Conflict:
                 "page": item.page,
                 "statement_class": item.statement_class,
                 "role": item.role,
+                "folder_role": item.folder_role,
+                "folder_role_label": ROLE_LABELS.get(item.folder_role, ""),
             }
 
         return {
@@ -165,17 +187,24 @@ def _family(parameter: str) -> str:
     return "mechanical"
 
 
-def compare_claims(claims: list, rules_note: str = "") -> list[Conflict]:
+def _role_key(claim, parameter: str, role_order: list[str]) -> tuple:
+    role = (getattr(claim, "folder_role", "") or "").strip()
+    if role in role_order and role != "general":
+        return (0, role_order.index(role), -revision_rank(claim.revision), claim.title)
+    if role == "general":
+        return (2, 0, -revision_rank(claim.revision), claim.title)
+    return (1, _rank(claim.doc_type, parameter), -revision_rank(claim.revision), claim.title)
+
+
+def compare_claims(claims: list, rules_note: str = "", role_order: list[str] | None = None) -> list[Conflict]:
+    order = role_order or list(DEFAULT_ROLE_ORDER)
     grouped: dict[str, list] = {}
     for claim in claims:
         grouped.setdefault(claim.parameter, []).append(claim)
 
     results: list[Conflict] = []
     for parameter, items in grouped.items():
-        ordered = sorted(
-            items,
-            key=lambda c: (_rank(c.doc_type, parameter), -revision_rank(c.revision), c.title),
-        )
+        ordered = sorted(items, key=lambda c: _role_key(c, parameter, order))
         # Prefer a real project document over a note when ranks tie.
         governing_claim = ordered[0]
         values = {_norm(c.value) for c in items}
@@ -187,7 +216,7 @@ def compare_claims(claims: list, rules_note: str = "") -> list[Conflict]:
                 role = "governing"
             elif same:
                 role = "aligned"
-            elif claim.doc_type == "vendor":
+            elif claim.doc_type == "vendor" or getattr(claim, "folder_role", "") == "vendor":
                 role = "deviation"
             else:
                 role = "conflict"
@@ -203,6 +232,7 @@ def compare_claims(claims: list, rules_note: str = "") -> list[Conflict]:
                     page=claim.page,
                     statement_class=claim.statement_class,
                     role=role,
+                    folder_role=getattr(claim, "folder_role", "") or "",
                 )
             )
         governing = next(item for item in observed if item.role == "governing")
@@ -238,7 +268,14 @@ def _explain(parameter: str, governing: Observed, observed: list[Observed], stat
     others = [item for item in observed if item.role != "governing"]
     other_text = "; ".join(f"{item.document} rev {item.revision or '—'} states {item.value}" for item in others)
     label = LABELS.get(parameter, parameter)
-    if governing.doc_type == "standard":
+    if governing.folder_role in DEFAULT_ROLE_ORDER and governing.folder_role != "general":
+        party = ROLE_LABELS.get(governing.folder_role, governing.folder_role)
+        why = (
+            f"{governing.document} rev {governing.revision or '—'} governs {label} "
+            f"because the {party} folder outranks the other folders in this project's precedence. "
+            "General codes stay the baseline underneath the project folders."
+        )
+    elif governing.doc_type == "standard":
         why = (
             f"{governing.document} edition {governing.edition or '—'} governs {label} "
             "as a code or standard loaded for this project. "

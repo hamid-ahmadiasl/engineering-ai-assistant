@@ -38,7 +38,9 @@ def test_folder_filter_limits_retrieval_and_nesting(client):
     assert parent.status_code == 200, parent.text
     child = _folder(client, admin, project["id"], "Datasheets", parent.json()["id"])
     assert child.status_code == 200, child.text
-    too_deep = _folder(client, admin, project["id"], "Too deep", child.json()["id"])
+    third = _folder(client, admin, project["id"], "Datasheets", child.json()["id"])
+    assert third.status_code == 200, third.text
+    too_deep = _folder(client, admin, project["id"], "Too deep", third.json()["id"])
     assert too_deep.status_code == 400
 
     inside = _upload(client, admin, project["id"], "inside.txt", "FOLDER-INSIDE design pressure is 8 barg.\n", parent.json()["id"])

@@ -10,7 +10,13 @@ from sqlalchemy.orm import Session
 from app.models import Chunk, Claim, Project
 from app.rag.answer import answer_from_evidence
 from app.rag.language import retrieval_text
-from app.rag.precedence import compare_claims, filter_parameters, named_conflicts, separate_project_notes
+from app.rag.precedence import (
+    DEFAULT_ROLE_ORDER,
+    compare_claims,
+    filter_parameters,
+    named_conflicts,
+    separate_project_notes,
+)
 from app.rag.retrieve import retrieve
 
 TROUBLE_WORDS = (
@@ -51,6 +57,21 @@ def _chunks_for_clauses(db: Session, project_id: str, pairs: list[tuple[str, str
     return found
 
 
+def _role_order(project: Project) -> list[str]:
+    order = list(DEFAULT_ROLE_ORDER)
+    if not project.precedence_json:
+        return order
+    try:
+        raw = json.loads(project.precedence_json).get("roles") or []
+    except json.JSONDecodeError:
+        return order
+    chosen = [role for role in raw if role in DEFAULT_ROLE_ORDER]
+    for role in DEFAULT_ROLE_ORDER:
+        if role not in chosen:
+            chosen.append(role)
+    return chosen or order
+
+
 def _project_conflicts(db: Session, project: Project, message: str, query: str, resolved: str, document_ids: list[str] | None):
     claims = list(db.scalars(select(Claim).where(Claim.project_id == project.id)))
     if document_ids:
@@ -62,7 +83,7 @@ def _project_conflicts(db: Session, project: Project, message: str, query: str, 
             rules = json.loads(project.precedence_json).get("summary", "")
         except json.JSONDecodeError:
             rules = ""
-    found = compare_claims(claims, rules)
+    found = compare_claims(claims, rules, _role_order(project))
     searchable = f"{message}\n{query}"
     named = named_conflicts(searchable, found)
     broad = resolved == "compare" or any(
@@ -92,6 +113,7 @@ def run_query(
     document_ids: list[str] | None = None,
     projects: list[Project] | None = None,
     include_global: bool | None = None,
+    include_personal: bool = False,
     owner_id: str | None = None,
     folder_documents: dict[str, set[str]] | None = None,
 ) -> dict:
@@ -110,7 +132,8 @@ def run_query(
         document_ids=document_ids,
         project_ids=[item.id for item in selected],
         include_global=include_global,
-        owner_id=owner_id if include_global else None,
+        include_personal=include_personal,
+        owner_id=owner_id if include_personal else None,
         folder_documents=folder_documents,
     )
 
@@ -140,8 +163,10 @@ def run_query(
     result = answer_from_evidence(resolved, message, chunks, conflicts)
     codes = {item.id: item.code for item in selected}
     for citation in result.get("citations") or []:
-        if citation.get("store") in {"global", "personal"}:
-            citation["store_label"] = "General codes and standards"
+        if citation.get("store") == "personal":
+            citation["store_label"] = "General Codes and STD"
+        elif citation.get("store") == "global":
+            citation["store_label"] = "Demo notes"
         else:
             citation["store_label"] = codes.get(citation.get("project_id") or "", citation.get("store") or "")
     result["project_id"] = selected[0].id if len(selected) == 1 else None

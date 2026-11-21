@@ -6,6 +6,9 @@ const state = {
   conversationId: null,
   scopes: JSON.parse(localStorage.getItem("eai_scopes") || "null") || { global: true, projectIds: [], folders: {}, fresh: true },
   folders: {},
+  treeOpen: JSON.parse(localStorage.getItem("eai_tree") || "{}"),
+  customFolders: [],
+  roleOrder: ["owner", "consultant", "third_party", "vendor", "general"],
   editingProject: null,
   lastAnswer: null,
   library: [],
@@ -204,21 +207,15 @@ function placeScopeMenu() {
   if (!button || !menu || menu.hidden) return;
   if (menu.parentElement !== document.body) document.body.appendChild(menu);
   const rect = button.getBoundingClientRect();
-  const library = document.querySelector(".library");
-  const edge = library ? library.getBoundingClientRect() : rect;
-  const width = Math.min(340, window.innerWidth - 16);
-  menu.style.width = `${width}px`;
   const rtl = document.documentElement.dir === "rtl";
-  const beside = window.innerWidth > 980;
-  menu.style.top = `${Math.max(8, Math.min(beside ? rect.top : rect.bottom + 6, window.innerHeight - 24))}px`;
+  menu.style.top = `${rect.bottom + 4}px`;
+  menu.style.width = `${rect.width}px`;
   if (rtl) {
     menu.style.left = "auto";
-    const right = beside ? window.innerWidth - edge.left + 8 : window.innerWidth - rect.right;
-    menu.style.right = `${Math.max(8, right)}px`;
+    menu.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
   } else {
     menu.style.right = "auto";
-    const left = beside ? edge.right + 8 : rect.left;
-    menu.style.left = `${Math.max(8, Math.min(left, window.innerWidth - width - 8))}px`;
+    menu.style.left = `${Math.max(8, rect.left)}px`;
   }
 }
 
@@ -272,9 +269,10 @@ function renderScope() {
   menu.innerHTML = "";
   menu.appendChild(scopeRow({
     checked: state.scopes.global,
-    text: t("generalKnowledge"),
+    text: t("generalCodes"),
     onToggle: toggleGlobal,
   }));
+  if (state.scopes.global && (state.folders.general || []).length) menu.appendChild(folderScopeList({ id: "general" }));
   for (const project of state.projects) {
     const text = projectCaption(project);
     const block = document.createElement("div");
@@ -295,13 +293,19 @@ function renderScope() {
 }
 
 async function refreshLibrary() {
-  const [projects, kb] = await Promise.all([api("/api/projects"), api("/api/kb/documents")]);
+  const projects = await api("/api/projects");
   state.projects = projects.projects;
   const folderLists = await Promise.all(state.projects.map(async (project) => {
     const payload = await api(`/api/projects/${project.id}/folders`);
     return [project.id, payload.folders];
   }));
   state.folders = Object.fromEntries(folderLists);
+  let kb = [];
+  if (state.user && state.user.is_anonymous) {
+    kb = (await api("/api/kb/documents")).documents;
+  } else if (state.user) {
+    state.folders.general = (await api("/api/library/folders")).folders;
+  }
   if (!state.scopes.folders) state.scopes.folders = {};
   if (state.scopes.fresh) {
     const demo = state.projects.find((project) => project.code === "HX-2201");
@@ -320,7 +324,7 @@ function folderScopeList(project) {
   const add = (folder, depth) => {
     const row = scopeRow({
       checked: !picked || picked.includes(folder.id),
-      text: folder.name,
+      text: folderLabel(folder),
       onToggle: () => toggleFolder(project.id, folder.id),
     });
     row.style.paddingInlineStart = `${0.6 + depth * 0.8}rem`;
@@ -351,131 +355,266 @@ function toggleFolder(projectId, folderId) {
   refreshLibrary();
 }
 
-function docList(docs, canDelete) {
-  const list = document.createElement("ul");
-  list.className = "doc-list";
-  if (!docs.length) {
-    const empty = document.createElement("li");
-    empty.innerHTML = `<span>${t("noProjectFiles")}</span>`;
-    list.appendChild(empty);
-    return list;
-  }
-  for (const doc of docs) list.appendChild(docItem(doc, canDelete));
-  return list;
+const ROLE_CANON = {
+  owner: "Owner",
+  consultant: "Consultant",
+  vendor: "Vendor",
+  third_party: "Third Party",
+};
+
+function folderLabel(folder) {
+  if (folder.role && ROLE_CANON[folder.role] === folder.name) return t(`role_${folder.role}`);
+  return folder.name;
 }
 
-function uploadForm(kind, projectId, folderId) {
-  const form = document.createElement("form");
-  form.className = "upload";
-  form.dataset.kind = kind;
-  if (projectId) form.dataset.projectId = projectId;
-  if (folderId) form.dataset.folderId = folderId;
-  const input = document.createElement("input");
-  input.type = "file";
-  input.name = "file";
-  input.accept = ".pdf,.xlsx,.xlsm,.txt,.md,.csv,.png,.jpg,.jpeg,.tif,.tiff";
-  form.appendChild(input);
-  if (kind === "standard") {
-    const name = document.createElement("input");
-    name.name = "standard_name";
-    name.placeholder = t("standardName");
-    const edition = document.createElement("input");
-    edition.name = "edition";
-    edition.placeholder = t("editionYear");
-    form.append(name, edition);
-  } else if (kind !== "library") {
-    const select = document.createElement("select");
-    select.name = "doc_type";
-    for (const [value, key] of [["project_spec", "spec"], ["datasheet", "datasheet"], ["vendor", "vendor"], ["requisition", "requisition"], ["upload", "otherFile"]]) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = t(key);
-      select.appendChild(option);
-    }
-    form.appendChild(select);
-  } else {
-    const title = document.createElement("input");
-    title.name = "title";
-    title.placeholder = t("projectName");
-    form.appendChild(title);
-  }
-  const button = document.createElement("button");
-  button.className = "primary";
-  button.type = "submit";
-  button.textContent = kind === "standard" ? t("addStandard") : kind === "library" ? t("addGeneral") : t("addDoc");
-  form.appendChild(button);
-  const error = document.createElement("p");
-  error.className = "form-error";
-  error.dataset.for = kind === "library" ? "library" : kind === "standard" ? "standard" : "upload";
-  form.appendChild(error);
-  return form;
+function rememberTree(id, open) {
+  state.treeOpen[id] = open;
+  localStorage.setItem("eai_tree", JSON.stringify(state.treeOpen));
 }
 
-function folderBlocks(project, folders, docs) {
-  const picked = state.scopes.folders?.[project.id];
-  const visible = new Set(picked || folders.map((folder) => folder.id));
-  const host = document.createElement("div");
-  const ungrouped = docs.filter((doc) => !doc.folder_id);
-  if (!picked) {
-    const zone = document.createElement("div");
-    zone.className = "folder-drop";
-    zone.dataset.projectId = project.id;
-    zone.dataset.folderId = "";
-    const label = document.createElement("p");
-    label.className = "hint";
-    label.textContent = t("ungrouped");
-    zone.append(label, docList(ungrouped, true));
-    host.appendChild(zone);
-  }
-  const draw = (folder, depth) => {
-    if (picked && !visible.has(folder.id)) return;
-    const block = document.createElement("div");
-    block.className = "folder-block";
-    block.style.paddingInlineStart = `${depth * 0.7}rem`;
-    const head = document.createElement("div");
-    head.className = "folder-head";
-    head.dataset.projectId = project.id;
-    head.dataset.folderId = folder.id;
-    const name = document.createElement("span");
-    name.textContent = folder.name;
-    head.appendChild(name);
-    if (!state.uploadsLocked) {
-      const rename = document.createElement("button");
-      rename.type = "button";
-      rename.className = "ghost small";
-      rename.textContent = "✎";
-      rename.addEventListener("click", () => renameFolder(folder));
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "ghost small";
-      remove.textContent = "✕";
-      remove.addEventListener("click", () => removeFolder(folder));
-      head.append(rename, remove);
-      if (!folder.parent_id) {
-        const nested = document.createElement("button");
-        nested.type = "button";
-        nested.className = "ghost small";
-        nested.textContent = t("newFolder");
-        nested.addEventListener("click", () => createFolder(project.id, folder.id));
-        head.appendChild(nested);
+function visibleFolderSet(key, folders) {
+  const picked = state.scopes.folders && state.scopes.folders[key];
+  if (!picked) return null;
+  const byId = Object.fromEntries(folders.map((folder) => [folder.id, folder]));
+  const set = new Set(picked);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const folder of folders) {
+      if (folder.parent_id && set.has(folder.parent_id) && !set.has(folder.id)) {
+        set.add(folder.id);
+        grew = true;
       }
     }
-    const docsHere = docs.filter((doc) => doc.folder_id === folder.id);
-    block.append(head, docList(docsHere, true));
-    if (!state.uploadsLocked) block.appendChild(uploadForm("project", project.id, folder.id));
-    host.appendChild(block);
-    folders.filter((item) => item.parent_id === folder.id).forEach((child) => draw(child, depth + 1));
-  };
-  folders.filter((folder) => !folder.parent_id).forEach((folder) => draw(folder, 0));
+  }
+  for (const id of [...set]) {
+    let current = byId[id];
+    while (current && current.parent_id && !set.has(current.parent_id)) {
+      set.add(current.parent_id);
+      current = byId[current.parent_id];
+    }
+  }
+  return set;
+}
+
+function uploadGlyph() {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "icon-btn tree-upload";
+  button.title = t("uploadHere");
+  button.setAttribute("aria-label", t("uploadHere"));
+  button.textContent = "↑";
+  return button;
+}
+
+async function uploadFiles(fileList, { projectId, folderId, personal }) {
+  const files = [...fileList];
+  if (!files.length) return;
+  for (const file of files) {
+    const body = new FormData();
+    body.set("file", file);
+    body.set("title", file.name.replace(/\.[^.]+$/, "") || file.name);
+    if (folderId) body.set("folder_id", folderId);
+    const path = personal ? "/api/library/documents" : `/api/projects/${projectId}/documents`;
+    await api(path, { method: "POST", body });
+  }
+  await refreshLibrary();
+}
+
+function bindUpload(button, target) {
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const input = document.createElement("input");
+    input.type = "file";
+    input.multiple = true;
+    input.accept = ".pdf,.xlsx,.xlsm,.txt,.md,.csv,.png,.jpg,.jpeg,.tif,.tiff";
+    input.addEventListener("change", () => uploadFiles(input.files, target).catch((error) => setError("project", error.message)));
+    input.click();
+  });
+}
+
+function bindDrop(row, target) {
+  row.dataset.folderId = target.folderId || "";
+  row.dataset.projectId = target.projectId || "";
+  row.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    row.classList.add("drop");
+  });
+  row.addEventListener("dragleave", () => row.classList.remove("drop"));
+  row.addEventListener("drop", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    row.classList.remove("drop");
+    const docId = event.dataTransfer.getData("text/plain");
+    if (docId && target.projectId) {
+      await api(`/api/projects/${target.projectId}/documents/${docId}`, {
+        method: "PATCH",
+        json: { folder_id: target.folderId || null },
+      });
+      await refreshLibrary();
+      return;
+    }
+    if (event.dataTransfer.files && event.dataTransfer.files.length) {
+      await uploadFiles(event.dataTransfer.files, target);
+    }
+  });
+}
+
+function fileRow(doc) {
+  const li = document.createElement("li");
+  li.className = "tree-file";
+  li.dataset.docId = doc.id;
+  if (doc.scope !== "global" && doc.doc_type !== "standard") li.draggable = true;
+  const name = document.createElement("button");
+  name.type = "button";
+  name.className = "tree-file-name";
+  name.textContent = doc.title || doc.filename;
+  name.title = doc.filename;
+  if (doc.scope !== "global") name.addEventListener("click", () => renameFile(doc));
+  li.appendChild(name);
+  if (doc.scope !== "global") {
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "icon-btn";
+    remove.textContent = "×";
+    remove.title = t("deleteDoc");
+    remove.addEventListener("click", () => deleteDocument(doc));
+    li.appendChild(remove);
+  }
+  return li;
+}
+
+async function renameFile(doc) {
+  const title = window.prompt(t("renameFile"), doc.title || doc.filename);
+  if (!title || title === doc.title) return;
+  const path = doc.scope === "personal"
+    ? `/api/library/documents/${doc.id}`
+    : `/api/projects/${doc.project_id}/documents/${doc.id}`;
+  await api(path, { method: "PATCH", json: { title } });
+  await refreshLibrary();
+}
+
+function folderNode(folder, folders, docs, project, visible, depth) {
+  if (visible && !visible.has(folder.id)) return null;
+  const mine = docs.filter((doc) => doc.folder_id === folder.id);
+  const details = document.createElement("details");
+  details.className = "tree-node";
+  details.dataset.node = folder.id;
+  details.open = state.treeOpen[folder.id] !== false;
+  details.addEventListener("toggle", () => rememberTree(folder.id, details.open));
+  const summary = document.createElement("summary");
+  summary.className = "tree-row";
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = folderLabel(folder);
+  const count = document.createElement("span");
+  count.className = "tree-count";
+  count.textContent = String(mine.length);
+  summary.append(name, count);
+  const target = { projectId: project ? project.id : "", folderId: folder.id, personal: !project };
   if (!state.uploadsLocked) {
+    const upload = uploadGlyph();
+    bindUpload(upload, target);
     const add = document.createElement("button");
     add.type = "button";
-    add.className = "ghost small";
-    add.textContent = t("newFolder");
-    add.addEventListener("click", () => createFolder(project.id, null));
-    host.appendChild(add);
+    add.className = "icon-btn";
+    add.textContent = "+";
+    add.title = t("newFolder");
+    add.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      createFolder(project ? project.id : "general", folder.id);
+    });
+    const rename = document.createElement("button");
+    rename.type = "button";
+    rename.className = "icon-btn";
+    rename.textContent = "✎";
+    rename.title = t("renameFolder");
+    rename.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      renameFolder(folder);
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "icon-btn";
+    remove.textContent = "×";
+    remove.title = t("deleteDoc");
+    remove.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      removeFolder(folder);
+    });
+    summary.append(upload, add, rename, remove);
   }
-  return host;
+  bindDrop(summary, target);
+  const body = document.createElement("div");
+  body.className = "tree-children";
+  if (depth) body.style.paddingInlineStart = "0.85rem";
+  const list = document.createElement("ul");
+  list.className = "tree-files";
+  mine.forEach((doc) => list.appendChild(fileRow(doc)));
+  body.appendChild(list);
+  folders.filter((item) => item.parent_id === folder.id).forEach((child) => {
+    const node = folderNode(child, folders, docs, project, visible, depth + 1);
+    if (node) body.appendChild(node);
+  });
+  details.append(summary, body);
+  return details;
+}
+
+function rootNode({ id, label, docs, folders, project, personal }) {
+  const visible = visibleFolderSet(personal ? "general" : project.id, folders);
+  const loose = docs.filter((doc) => !doc.folder_id);
+  const shownLoose = visible ? [] : loose;
+  const details = document.createElement("details");
+  details.className = "tree-node tree-root";
+  details.dataset.node = id;
+  details.open = state.treeOpen[id] !== false;
+  details.addEventListener("toggle", () => rememberTree(id, details.open));
+  const summary = document.createElement("summary");
+  summary.className = "tree-row";
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = label;
+  const count = document.createElement("span");
+  count.className = "tree-count";
+  const total = docs.filter((doc) => !visible || visible.has(doc.folder_id) || !doc.folder_id && !visible).length;
+  count.textContent = String(visible ? docs.filter((doc) => visible.has(doc.folder_id)).length : docs.length);
+  summary.append(name, count);
+  const target = { projectId: project ? project.id : "", folderId: "", personal };
+  if (!state.uploadsLocked && (project || personal)) {
+    const upload = uploadGlyph();
+    bindUpload(upload, target);
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "icon-btn";
+    add.textContent = "+";
+    add.title = t("newFolder");
+    add.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      createFolder(project ? project.id : "general", null);
+    });
+    summary.append(upload, add);
+  }
+  if (project) bindDrop(summary, target);
+  const body = document.createElement("div");
+  body.className = "tree-children";
+  const list = document.createElement("ul");
+  list.className = "tree-files";
+  shownLoose.forEach((doc) => {
+    doc.group = personal ? t("generalCodes") : project.code;
+    list.appendChild(fileRow(doc));
+  });
+  body.appendChild(list);
+  folders.filter((folder) => !folder.parent_id).forEach((folder) => {
+    const node = folderNode(folder, folders, docs, project, visible, 1);
+    if (node) body.appendChild(node);
+  });
+  details.append(summary, body);
+  return { details, total };
 }
 
 async function renderDocs(kbDocuments) {
@@ -483,57 +622,69 @@ async function renderDocs(kbDocuments) {
   if (!host) return;
   host.innerHTML = "";
   state.library = [];
-  if (state.scopes.global) {
-    const group = document.createElement("details");
-    group.className = "scope-group";
-    group.open = true;
-    const summary = document.createElement("summary");
-    summary.textContent = t("generalKnowledge");
-    group.appendChild(summary);
-    let personal = [];
-    if (state.user && !state.user.is_anonymous) {
-      personal = (await api("/api/library/documents")).documents.map((doc) => ({ ...doc, scope: "personal", group: t("generalChip") }));
+  const tools = document.createElement("div");
+  tools.className = "tree-tools";
+  const expand = document.createElement("button");
+  expand.type = "button";
+  expand.className = "ghost small";
+  expand.textContent = t("expandAll");
+  expand.addEventListener("click", () => host.querySelectorAll("details").forEach((node) => { node.open = true; rememberTree(node.dataset.node, true); }));
+  const collapse = document.createElement("button");
+  collapse.type = "button";
+  collapse.className = "ghost small";
+  collapse.textContent = t("collapseAll");
+  collapse.addEventListener("click", () => host.querySelectorAll("details").forEach((node) => { node.open = false; rememberTree(node.dataset.node, false); }));
+  tools.append(expand, collapse);
+  host.appendChild(tools);
+
+  if (state.user && state.user.is_anonymous) {
+    if (state.scopes.global) {
+      const notes = (kbDocuments || []).map((doc) => ({ ...doc, scope: "global", group: t("demoNotes") }));
+      const node = rootNode({ id: "demo", label: t("demoNotes"), docs: notes, folders: [], project: null, personal: false });
+      host.appendChild(node.details);
+      state.library.push(...notes);
     }
-    const shared = (kbDocuments || []).map((doc) => ({ ...doc, scope: doc.scope || "global", group: t("generalChip") }));
-    const mine = document.createElement("h3");
-    mine.textContent = t("yourFiles");
-    const sharedHead = document.createElement("h3");
-    sharedHead.textContent = t("globalNotes");
-    group.append(mine, docList(personal, true));
-    if (!state.uploadsLocked) group.appendChild(uploadForm("library"));
-    group.append(sharedHead, docList(shared, false));
-    host.appendChild(group);
-    state.library.push(...personal, ...shared);
-  }
-  for (const project of selectedProjects()) {
-    const [docs, folders] = await Promise.all([
-      api(`/api/projects/${project.id}/documents`),
-      api(`/api/projects/${project.id}/folders`),
-    ]);
-    state.folders[project.id] = folders.folders;
-    const group = document.createElement("details");
-    group.className = "scope-group";
-    group.open = true;
-    const summary = document.createElement("summary");
-    summary.textContent = projectCaption(project);
-    group.appendChild(summary);
-    const standards = docs.documents.filter((doc) => doc.doc_type === "standard").map((doc) => ({ ...doc, group: projectCaption(project) }));
-    const files = docs.documents.filter((doc) => doc.doc_type !== "standard").map((doc) => {
-      const folder = (state.folders[project.id] || []).find((item) => item.id === doc.folder_id);
-      return { ...doc, group: folder ? `${project.code} / ${folder.name}` : project.code };
+  } else if (state.scopes.global) {
+    const personal = state.user
+      ? (await api("/api/library/documents")).documents.map((doc) => ({ ...doc, scope: "personal", group: t("generalCodes") }))
+      : [];
+    const folders = state.folders.general || [];
+    personal.forEach((doc) => {
+      const folder = folders.find((item) => item.id === doc.folder_id);
+      if (folder) doc.group = `${t("generalCodes")} / ${folderLabel(folder)}`;
     });
-    const codesHead = document.createElement("h3");
-    codesHead.textContent = t("codesStandards");
-    const docsHead = document.createElement("h3");
-    docsHead.textContent = t("projectDocs");
-    group.append(codesHead, docList(standards, true));
-    if (!state.uploadsLocked) group.appendChild(uploadForm("standard", project.id));
-    group.append(docsHead, folderBlocks(project, state.folders[project.id] || [], files));
-    host.appendChild(group);
-    const picked = state.scopes.folders?.[project.id];
-    state.library.push(...standards, ...(picked ? files.filter((doc) => picked.includes(doc.folder_id)) : files));
+    const node = rootNode({
+      id: "general",
+      label: t("generalCodes"),
+      docs: personal,
+      folders,
+      project: null,
+      personal: true,
+    });
+    host.appendChild(node.details);
+    const picked = state.scopes.folders && state.scopes.folders.general;
+    state.library.push(...(picked ? personal.filter((doc) => picked.includes(doc.folder_id)) : personal));
+  }
+
+  for (const project of selectedProjects()) {
+    const docs = (await api(`/api/projects/${project.id}/documents`)).documents.map((doc) => {
+      const folder = (state.folders[project.id] || []).find((item) => item.id === doc.folder_id);
+      return { ...doc, scope: "project", group: folder ? `${project.code} / ${folderLabel(folder)}` : project.code };
+    });
+    const node = rootNode({
+      id: project.id,
+      label: projectCaption(project),
+      docs,
+      folders: state.folders[project.id] || [],
+      project,
+      personal: false,
+    });
+    host.appendChild(node.details);
+    const picked = state.scopes.folders && state.scopes.folders[project.id];
+    state.library.push(...(picked ? docs.filter((doc) => picked.includes(doc.folder_id)) : docs));
   }
 }
+
 
 function docItem(doc, canDelete) {
   const li = document.createElement("li");
@@ -711,8 +862,7 @@ async function deleteDocument(doc) {
   await api(path, { method: "DELETE" });
   state.mentions = state.mentions.filter((item) => item.id !== doc.id);
   renderChips();
-  const kb = await api("/api/kb/documents");
-  await renderDocs(kb.documents);
+  await refreshLibrary();
 }
 
 function renderPrompts() {
@@ -878,6 +1028,12 @@ function renderEvidence(answer) {
     badge.classList.add(citation.statement_class);
     const chips = document.createElement("div");
     chips.className = "chips";
+    if (citation.folder_role) {
+      const role = document.createElement("span");
+      role.className = "role-tag";
+      role.textContent = t(`role_${citation.folder_role}`) || citation.folder_role;
+      chips.appendChild(role);
+    }
     const bits = [
       citation.source_file,
       `${t("clause")} ${citation.clause || citation.section || "—"}`,
@@ -1056,20 +1212,27 @@ $("library-sections").addEventListener("drop", async (event) => {
   const docId = event.dataTransfer.getData("text/plain");
   if (!zone || !docId) return;
   event.preventDefault();
+  if (event.dataTransfer.files && event.dataTransfer.files.length && !docId) {
+    event.preventDefault();
+    await uploadFiles(event.dataTransfer.files, {
+      projectId: zone.dataset.projectId,
+      folderId: zone.dataset.folderId,
+      personal: !zone.dataset.projectId,
+    });
+    return;
+  }
   await api(`/api/projects/${zone.dataset.projectId}/documents/${docId}`, {
     method: "PATCH",
     json: { folder_id: zone.dataset.folderId || null },
   });
-  const kb = await api("/api/kb/documents");
-  await renderDocs(kb.documents);
+  await refreshLibrary();
 });
 
 async function renameFolder(folder) {
   const name = window.prompt(t("renameFolder"), folder.name);
   if (!name || name === folder.name) return;
   await api(`/api/folders/${folder.id}`, { method: "PATCH", json: { name } });
-  const kb = await api("/api/kb/documents");
-  await renderDocs(kb.documents);
+  await refreshLibrary();
 }
 
 async function removeFolder(folder) {
@@ -1079,16 +1242,67 @@ async function removeFolder(folder) {
     if (!window.confirm(`${error.message} ${t("deleteFolderAnyway")}`)) return;
     await api(`/api/folders/${folder.id}?force=true`, { method: "DELETE" });
   }
-  const kb = await api("/api/kb/documents");
-  await renderDocs(kb.documents);
+  await refreshLibrary();
 }
 
 async function createFolder(projectId, parentId) {
   const name = window.prompt(t("newFolder"));
   if (!name) return;
-  await api(`/api/projects/${projectId}/folders`, { method: "POST", json: { name, parent_id: parentId } });
-  const kb = await api("/api/kb/documents");
-  await renderDocs(kb.documents);
+  const path = !projectId || projectId === "general" ? "/api/library/folders" : `/api/projects/${projectId}/folders`;
+  await api(path, { method: "POST", json: { name, parent_id: parentId } });
+  await refreshLibrary();
+}
+
+function renderCustomFolderList() {
+  const list = $("custom-folders");
+  if (!list) return;
+  list.innerHTML = "";
+  state.customFolders.forEach((name, index) => {
+    const li = document.createElement("li");
+    li.textContent = name;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "icon-btn";
+    remove.textContent = "×";
+    remove.addEventListener("click", () => {
+      state.customFolders.splice(index, 1);
+      renderCustomFolderList();
+    });
+    li.appendChild(remove);
+    list.appendChild(li);
+  });
+}
+
+function renderRoleOrder() {
+  const list = $("role-order");
+  if (!list) return;
+  list.innerHTML = "";
+  state.roleOrder.forEach((role, index) => {
+    const li = document.createElement("li");
+    li.textContent = t(`role_${role}`);
+    const up = document.createElement("button");
+    up.type = "button";
+    up.className = "ghost small";
+    up.textContent = "↑";
+    up.addEventListener("click", () => {
+      if (index === 0) return;
+      const [item] = state.roleOrder.splice(index, 1);
+      state.roleOrder.splice(index - 1, 0, item);
+      renderRoleOrder();
+    });
+    const down = document.createElement("button");
+    down.type = "button";
+    down.className = "ghost small";
+    down.textContent = "↓";
+    down.addEventListener("click", () => {
+      if (index === state.roleOrder.length - 1) return;
+      const [item] = state.roleOrder.splice(index, 1);
+      state.roleOrder.splice(index + 1, 0, item);
+      renderRoleOrder();
+    });
+    li.append(up, down);
+    list.appendChild(li);
+  });
 }
 
 function openProjectModal(project) {
@@ -1098,7 +1312,15 @@ function openProjectModal(project) {
   form.name.value = project ? project.name : "";
   form.equipment.value = project ? (project.equipment || "") : "";
   form.description.value = project ? (project.description || "") : "";
+  state.customFolders = [];
+  renderCustomFolderList();
+  $("project-roles").hidden = Boolean(project);
+  $("project-order").hidden = !project;
+  const saved = project && project.precedence && project.precedence.roles;
+  state.roleOrder = (saved && saved.length ? saved : ["owner", "consultant", "third_party", "vendor", "general"]).slice();
+  renderRoleOrder();
   $("project-modal-title").textContent = project ? t("renameProject") : t("newProject");
+  $("project-form").querySelector("[type=submit]").textContent = project ? t("saveChanges") : t("saveProject");
   setError("project", "");
   $("project-modal").showModal();
 }
@@ -1115,14 +1337,32 @@ $("new-project").addEventListener("click", () => openProjectModal(null));
 $("new-project-empty").addEventListener("click", () => openProjectModal(null));
 $("new-project-chat").addEventListener("click", () => openProjectModal(null));
 $("project-cancel").addEventListener("click", () => $("project-modal").close());
+$("add-custom-folder").addEventListener("click", () => {
+  const name = $("custom-folder-name").value.trim();
+  if (!name) return;
+  state.customFolders.push(name);
+  $("custom-folder-name").value = "";
+  renderCustomFolderList();
+});
+document.querySelector(".library").addEventListener("scroll", () => {
+  if (!$("scope-menu").hidden) placeScopeMenu();
+});
 $("project-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   setError("project", "");
-  const data = Object.fromEntries(new FormData(event.target));
+  const data = {
+    code: event.target.code.value,
+    name: event.target.name.value,
+    equipment: event.target.equipment.value,
+    description: event.target.description.value,
+  };
   try {
     if (state.editingProject) {
+      data.roles = state.roleOrder.slice();
       await api(`/api/projects/${state.editingProject.id}`, { method: "PATCH", json: data });
     } else {
+      data.roles = [...$("project-roles").querySelectorAll("input:checked")].map((input) => input.value);
+      data.custom_folders = state.customFolders.slice();
       const created = await api("/api/projects", { method: "POST", json: data });
       state.scopes.projectIds = [...new Set([...state.scopes.projectIds, created.id])];
     }

@@ -26,14 +26,33 @@ class FakeDrive:
     def delete(self, file_id: str) -> None:
         FakeDrive.deleted.append(file_id)
 
+    paths: dict = {}
+    moved: list = []
+    renamed: list = []
+
     def exists(self, file_id: str) -> bool:
         return file_id not in FakeDrive.missing
+
+    def ensure_path(self, folders):
+        key = "/".join(folders)
+        FakeDrive.paths.setdefault(key, f"fld-{len(FakeDrive.paths) + 1}")
+        return FakeDrive.paths[key]
+
+    def relocate(self, file_id, folders):
+        FakeDrive.moved.append({"id": file_id, "folders": list(folders)})
+        return self.ensure_path(folders)
+
+    def rename(self, file_id, name):
+        FakeDrive.renamed.append({"id": file_id, "name": name})
 
 
 def _reset_fake():
     FakeDrive.created = []
     FakeDrive.deleted = []
     FakeDrive.missing = set()
+    FakeDrive.paths = {}
+    FakeDrive.moved = []
+    FakeDrive.renamed = []
 
 
 def _google(monkeypatch):
@@ -106,7 +125,7 @@ def test_upload_lands_in_the_users_drive_folder(client, monkeypatch):
     body = uploaded.json()
     assert body["storage"] == "gdrive"
     assert body["drive_file_id"] == "drive-1"
-    assert FakeDrive.created[0]["folders"] == ["Engineering AI Assistant", "DRV-1", "Codes & Standards"]
+    assert FakeDrive.created[0]["folders"] == ["EAIA", "DRV-1 - Drive job", "Codes & Standards"]
     assert b"UG-99" in FakeDrive.created[0]["data"]
 
     listed = client.get(f"/api/projects/{project['id']}/documents", headers=admin).json()["documents"]

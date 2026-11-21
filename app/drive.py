@@ -18,7 +18,8 @@ from app.config import get_settings
 log = logging.getLogger("engineering_assistant.drive")
 
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
-ROOT_FOLDER = "Engineering AI Assistant"
+ROOT_FOLDER = "EAIA"
+GENERAL_FOLDER = "General Codes and STD"
 STANDARDS_FOLDER = "Codes & Standards"
 PROJECT_FOLDER = "Project documents"
 GLOBAL_FOLDER = "Global knowledge"
@@ -144,6 +145,46 @@ class DriveClient:
             raise DriveError(f"Drive folder create failed: HTTP {created.status_code}")
         return created.json()["id"]
 
+    def ensure_path(self, folders: list[str]) -> str:
+        return self._ensure_folders(folders)
+
+    def relocate(self, file_id: str, folders: list[str]) -> str:
+        """Move a file the app created into another folder path (addParents/removeParents)."""
+        parent = self._ensure_folders(folders)
+        current_response = httpx.get(
+            f"https://www.googleapis.com/drive/v3/files/{file_id}",
+            params={"fields": "parents"},
+            headers={"Authorization": f"Bearer {self.access_token()}"},
+            timeout=20,
+        )
+        if current_response.status_code >= 400:
+            raise DriveError(f"Drive parent lookup failed: HTTP {current_response.status_code}")
+        current = current_response.json().get("parents") or []
+        if current == [parent]:
+            return parent
+        params = {"addParents": parent, "fields": "id,parents"}
+        if current:
+            params["removeParents"] = ",".join(current)
+        moved = httpx.patch(
+            f"https://www.googleapis.com/drive/v3/files/{file_id}",
+            params=params,
+            headers={"Authorization": f"Bearer {self.access_token()}"},
+            timeout=30,
+        )
+        if moved.status_code >= 400:
+            raise DriveError(f"Drive move failed: HTTP {moved.status_code}")
+        return parent
+
+    def rename(self, file_id: str, name: str) -> None:
+        response = httpx.patch(
+            f"https://www.googleapis.com/drive/v3/files/{file_id}",
+            headers={"Authorization": f"Bearer {self.access_token()}"},
+            json={"name": name},
+            timeout=20,
+        )
+        if response.status_code >= 400:
+            raise DriveError(f"Drive rename failed: HTTP {response.status_code}")
+
 
 def client_for_token(refresh_token: str) -> DriveClient:
     return DriveClient(refresh_token)
@@ -249,9 +290,11 @@ def revoke_token(refresh_token: str) -> None:
 def section_folder(doc_type: str, scope: str) -> str:
     if scope == "global":
         return GLOBAL_FOLDER
+    if scope == "personal":
+        return GENERAL_FOLDER
     if doc_type == "standard":
         return STANDARDS_FOLDER
-    return PROJECT_FOLDER
+    return ""
 
 
 def write_local_copy(data: bytes, filename: str, directory: Path) -> Path:

@@ -209,6 +209,22 @@
       <label><span data-i18n="projectName">Name</span> <input name="name" required minlength="2" maxlength="200" /></label>
       <label><span data-i18n="equipment">Equipment type</span> <input name="equipment" maxlength="120" data-i18n-placeholder="equipmentPlaceholder" placeholder="Shell-and-tube exchanger" /></label>
       <label><span data-i18n="description">Description</span> <textarea name="description" rows="3" maxlength="1000"></textarea></label>
+      <fieldset id="project-roles">
+        <legend data-i18n="folderRoles">Folders to create</legend>
+        <label class="check"><input type="checkbox" value="owner" checked /> <span data-i18n="role_owner">Owner</span></label>
+        <label class="check"><input type="checkbox" value="consultant" checked /> <span data-i18n="role_consultant">Consultant</span></label>
+        <label class="check"><input type="checkbox" value="vendor" checked /> <span data-i18n="role_vendor">Vendor</span></label>
+        <label class="check"><input type="checkbox" value="third_party" checked /> <span data-i18n="role_third_party">Third Party</span></label>
+        <div class="custom-folder-row">
+          <input id="custom-folder-name" type="text" maxlength="80" data-i18n-placeholder="customFolder" placeholder="Add custom folder" />
+          <button id="add-custom-folder" class="ghost small" type="button">+</button>
+        </div>
+        <ul id="custom-folders" class="custom-folders"></ul>
+      </fieldset>
+      <fieldset id="project-order" hidden>
+        <legend data-i18n="precedenceOrder">Precedence order</legend>
+        <ol id="role-order"></ol>
+      </fieldset>
       <p class="form-error" data-for="project"></p>
       <div class="modal-actions">
         <button class="ghost" type="button" id="project-cancel" data-i18n="cancel">Cancel</button>

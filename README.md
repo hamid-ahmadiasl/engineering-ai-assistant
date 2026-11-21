@@ -300,7 +300,13 @@ Until you add yourself as a test user and connect Drive, uploads are refused. Se
 7. Set `PUBLIC_BASE_URL` to `https://engineering-ai-assistant-i9fb.onrender.com` (no trailing path).
 8. In the app, each person uses **Connect Google Drive**. The request uses scope `https://www.googleapis.com/auth/drive.file` only, `access_type=offline`, and `prompt=consent`. The refresh token is encrypted with `TOKEN_ENC_KEY` or, if that is empty, `SECRET_KEY`. **Disconnect** revokes it and deletes the stored token.
 
-Files are created under `Engineering AI Assistant/<project code>/Codes & Standards` or `Project documents` in that user's Drive. Global knowledge uploads use the admin's Drive.
+Files are created in that user's Drive under a root folder `EAIA`:
+
+- `EAIA/General Codes and STD` holds the user's own general codes and standards.
+- `EAIA/<project number> - <project name>/` is created with **+ New project**. The dialog asks which of Owner, Consultant, Vendor, and Third Party to create, and accepts extra folder names. Folders nest at least three levels (for example Vendor / Pump vendor / Datasheets).
+- The app tree and the Drive folders stay in step. Uploading into a folder writes the file there. Moving a file between folders calls Drive `addParents` / `removeParents`. Renaming or deleting a folder does the same to the Drive folder.
+
+Signed-in answers search only documents that user uploaded. The shipped demo notes stay on the anonymous trial and are not mixed into a signed-in answer. Precedence defaults to Owner, then Consultant, then Third Party, then Vendor, with General Codes and STD as the baseline. Each project can reorder that list in its settings. Citations show the folder role.
 
 ### Supabase for the database
 
