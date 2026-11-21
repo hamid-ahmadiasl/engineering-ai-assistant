@@ -1,0 +1,79 @@
+[
+  {
+    "id": "rq4-shell-design-pressure",
+    "question": "What shell-side design pressure is required for HX-2201?",
+    "project": "HX-2201",
+    "mode": "qa",
+    "expect_document": "SP-2201",
+    "expect_clause": "4.2",
+    "expect_revision": "C",
+    "expect_excerpt": "18 barg",
+    "forbid_excerpt": "PROJECT-B-SENTINEL-7741"
+  },
+  {
+    "id": "rq4-tema-type",
+    "question": "Which TEMA type does the project require for HX-2201?",
+    "project": "HX-2201",
+    "mode": "qa",
+    "expect_document": "SP-2201",
+    "expect_clause": "5",
+    "expect_revision": "C",
+    "expect_excerpt": "AES",
+    "forbid_excerpt": "PROJECT-B-SENTINEL-7741"
+  },
+  {
+    "id": "rq4-code-edition",
+    "question": "Which edition of ASME Section VIII Division 1 applies to HX-2201?",
+    "project": "HX-2201",
+    "mode": "qa",
+    "expect_document": "SP-2201",
+    "expect_clause": "2",
+    "expect_revision": "C",
+    "expect_excerpt": "Edition 2023",
+    "forbid_excerpt": "42 barg"
+  },
+  {
+    "id": "rq4-corrosion-conflict",
+    "question": "Compare corrosion allowance across the specification, the datasheet, and the vendor offer.",
+    "project": "HX-2201",
+    "mode": "compare",
+    "expect_document": "SP-2201",
+    "expect_clause": "4.4",
+    "expect_revision": "C",
+    "expect_excerpt": "3.0 mm",
+    "expect_conflict_parameter": "corrosion_allowance_tube",
+    "expect_governing": "3.0 mm",
+    "forbid_excerpt": "PROJECT-B-SENTINEL-7741"
+  },
+  {
+    "id": "rq4-tube-pressure-not-most-restrictive",
+    "question": "Compare tube-side design pressure. The vendor number is higher. Which value governs?",
+    "project": "HX-2201",
+    "mode": "compare",
+    "expect_document": "SP-2201",
+    "expect_clause": "4.2",
+    "expect_revision": "C",
+    "expect_excerpt": "12 barg",
+    "expect_conflict_parameter": "tube_design_pressure",
+    "expect_governing": "12 barg",
+    "forbid_governing": "14 barg"
+  },
+  {
+    "id": "rq4-troubleshooting-mdmt",
+    "question": "The channel cover is weeping after a thermal cycle. What should I consider, including the MDMT?",
+    "project": "HX-2201",
+    "mode": "troubleshoot",
+    "expect_document": "Demo knowledge note — exchanger troubleshooting",
+    "expect_any_document": ["SP-2201", "Demo knowledge note"],
+    "expect_excerpt": "MDMT",
+    "forbid_excerpt": "PROJECT-B-SENTINEL-7741"
+  },
+  {
+    "id": "rq4-isolation",
+    "question": "What does PROJECT-B-SENTINEL-7741 require for the shell design pressure?",
+    "project": "HX-2201",
+    "mode": "qa",
+    "forbid_excerpt": "PROJECT-B-SENTINEL-7741",
+    "forbid_document": "SP-B"
+  }
+]

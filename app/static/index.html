@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Engineering AI Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Newsreader:opsz,wght@6..72,500;6..72,650&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div id="auth" class="auth">
+    <div class="auth-card">
+      <p class="eyebrow">Decision support · mechanical and process</p>
+      <h1>Engineering AI Assistant</h1>
+      <p class="lede">Ask about pressure equipment and heat exchangers. Answers stay tied to the global notes and the project file you select. A person still makes the decision.</p>
+      <div class="auth-grid">
+        <form id="login-form">
+          <h2>Sign in</h2>
+          <label>Email <input name="email" type="email" autocomplete="username" required /></label>
+          <label>Password <input name="password" type="password" autocomplete="current-password" required /></label>
+          <button class="primary" type="submit">Sign in</button>
+          <p class="form-error" data-for="login"></p>
+        </form>
+        <form id="register-form">
+          <h2>Create an account</h2>
+          <label>Email <input name="email" type="email" autocomplete="email" required /></label>
+          <label>Password <input name="password" type="password" autocomplete="new-password" minlength="8" required /></label>
+          <label>Access code <input name="code" type="text" placeholder="Optional unless the demo requires one" /></label>
+          <button class="primary" type="submit">Create account</button>
+          <p class="form-error" data-for="register"></p>
+        </form>
+      </div>
+      <div class="trial-row">
+        <button id="trial" class="ghost" type="button">Continue with a limited trial</button>
+        <p>The trial can question the demo exchanger only. It cannot upload files.</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="shell" class="shell" hidden>
+    <header class="top">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"></span>
+        <div>
+          <strong>Engineering AI Assistant</strong>
+          <em>Evidence first. No autonomous design.</em>
+        </div>
+      </div>
+      <label class="project-pick">
+        <span>Project</span>
+        <select id="project"></select>
+      </label>
+      <div class="credit-pill" id="credits" title="Monthly credits"></div>
+      <div class="who" id="who"></div>
+      <button id="open-admin" class="ghost small" type="button" hidden>Admin</button>
+      <button id="logout" class="ghost small" type="button">Sign out</button>
+    </header>
+
+    <div class="workspace">
+      <aside class="library">
+        <section>
+          <header>
+            <h2>Project documents</h2>
+          </header>
+          <ul id="project-docs" class="doc-list"></ul>
+          <form id="upload-form" class="upload">
+            <p class="hint">PDF or Excel. State the revision so citations can carry it.</p>
+            <input id="file" name="file" type="file" accept=".pdf,.xlsx,.xlsm,.txt,.md,.csv,.png,.jpg,.jpeg,.tif,.tiff" />
+            <div class="upload-fields">
+              <label>Type
+                <select name="doc_type">
+                  <option value="project_spec">Project specification</option>
+                  <option value="datasheet">Datasheet</option>
+                  <option value="vendor">Vendor document</option>
+                  <option value="requisition">Requisition</option>
+                  <option value="upload">Other project file</option>
+                </select>
+              </label>
+              <label>Revision <input name="revision" type="text" maxlength="40" placeholder="C" /></label>
+            </div>
+            <button class="primary" type="submit">Add to this project</button>
+            <p class="form-error" data-for="upload"></p>
+          </form>
+        </section>
+        <section>
+          <header><h2>Global knowledge notes</h2></header>
+          <p class="hint">Shared across projects. The shipped notes are original demo text, not licensed codes.</p>
+          <ul id="kb-docs" class="doc-list"></ul>
+        </section>
+      </aside>
+
+      <main class="conversation">
+        <p class="banner">Decision support only. Every figure below is for a qualified engineer to check against the cited page. The assistant does not approve a design.</p>
+        <div id="messages" class="messages"></div>
+        <form id="composer" class="composer">
+          <div class="modes" role="radiogroup" aria-label="Answer mode">
+            <label><input type="radio" name="mode" value="auto" checked /> Auto</label>
+            <label><input type="radio" name="mode" value="qa" /> Ask</label>
+            <label><input type="radio" name="mode" value="compare" /> Compare</label>
+            <label><input type="radio" name="mode" value="troubleshoot" /> Troubleshoot</label>
+          </div>
+          <div class="prompts" id="prompts"></div>
+          <div class="ask-row">
+            <textarea id="question" rows="3" placeholder="Ask about a requirement, a conflict, or a plant problem…" required></textarea>
+            <button class="primary" type="submit" id="send">Ask</button>
+          </div>
+          <p class="form-error" data-for="chat"></p>
+        </form>
+      </main>
+
+      <aside class="evidence" id="evidence">
+        <header><h2>Evidence</h2></header>
+        <div id="evidence-body" class="evidence-body">
+          <p class="empty">Citations, excerpts, and conflicts for the selected answer appear here.</p>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <div id="admin" class="admin" hidden>
+    <header class="top">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"></span>
+        <div><strong>Administration</strong><em>Accounts, codes, and credits</em></div>
+      </div>
+      <button id="close-admin" class="ghost small" type="button">Back to the assistant</button>
+    </header>
+    <div class="admin-grid">
+      <section>
+        <h2>Access codes</h2>
+        <form id="code-form" class="stack">
+          <label>Credits to add <input name="credit_amount" type="number" min="0" value="40" /></label>
+          <label>Plan on redemption
+            <select name="plan">
+              <option value="">Leave the current plan</option>
+              <option value="free">Free</option>
+              <option value="pro">Pro</option>
+            </select>
+          </label>
+          <label>Uses <input name="max_uses" type="number" min="1" value="1" /></label>
+          <label>Expires in days <input name="expires_in_days" type="number" min="1" placeholder="Never" /></label>
+          <label>Note <input name="note" type="text" maxlength="300" /></label>
+          <button class="primary" type="submit">Generate code</button>
+          <p class="form-error" data-for="code"></p>
+        </form>
+        <div id="new-code" class="new-code" hidden></div>
+        <ul id="codes" class="plain"></ul>
+      </section>
+      <section>
+        <h2>Accounts</h2>
+        <div id="users"></div>
+      </section>
+      <section>
+        <h2>Usage</h2>
+        <div id="usage"></div>
+        <p class="hint">Stripe checkout stays off until STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_PRICE_PRO are set.</p>
+        <p id="billing-state"></p>
+      </section>
+    </div>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

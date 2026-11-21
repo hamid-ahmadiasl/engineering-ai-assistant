@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Engineering AI Assistant — Hamid Ahmadi Asl</title>
+  <meta name="description" content="A knowledge-driven decision-support assistant for mechanical and process engineering. Evidence first. A human makes the decision." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Newsreader:opsz,wght@6..72,560;6..72,650&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #1b1914;
+      --muted: #5e584e;
+      --paper: #f4f0e6;
+      --card: #fbf8f2;
+      --line: #e0d6c6;
+      --pine: #1e3f38;
+      --copper: #b85c38;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: var(--paper); font-family: "Atkinson Hyperlegible", "Segoe UI", sans-serif; line-height: 1.55; }
+    h1, h2, h3 { font-family: Newsreader, Georgia, serif; font-weight: 650; letter-spacing: -0.03em; line-height: 1.05; }
+    a { color: var(--copper); }
+    header.hero { padding: 4.5rem 1.4rem 3rem; background:
+      radial-gradient(900px 320px at 90% -10%, rgba(184, 92, 56, 0.18), transparent),
+      linear-gradient(180deg, #efe6d6, #f4f0e6); }
+    .wrap { width: min(980px, 100%); margin: 0 auto; }
+    .eyebrow { letter-spacing: 0.16em; text-transform: uppercase; font-size: 0.75rem; color: var(--copper); margin: 0 0 0.8rem; }
+    h1 { font-size: clamp(2.6rem, 6vw, 4.6rem); margin: 0 0 1rem; max-width: 16ch; }
+    .lede { font-size: 1.2rem; max-width: 62ch; color: var(--muted); }
+    .actions { display: flex; flex-wrap: wrap; gap: 0.7rem; margin-top: 1.4rem; }
+    .btn { display: inline-block; text-decoration: none; border-radius: 999px; padding: 0.75rem 1.1rem; }
+    .btn.solid { background: var(--pine); color: #f6f3ea; }
+    .btn.line { border: 1px solid var(--line); color: var(--ink); background: #fff; }
+    main { padding: 0 1.4rem 4rem; }
+    section { margin: 2.2rem 0; }
+    h2 { font-size: 2rem; margin-bottom: 0.6rem; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.8rem; }
+    .card, .shot { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 1rem 1.05rem; }
+    .card h3 { margin: 0 0 0.4rem; font-size: 1.3rem; }
+    .card p, .prose p { margin: 0.4rem 0; }
+    ol { padding-left: 1.2rem; }
+    ol li { margin: 0.35rem 0; }
+    .diagram { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 1rem; overflow-x: auto; }
+    .rq { display: grid; gap: 0.7rem; }
+    .rq article { display: grid; grid-template-columns: 4.2rem 1fr; gap: 0.8rem; align-items: start; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 0.9rem; }
+    .rq strong { font-family: Newsreader, Georgia, serif; font-size: 1.4rem; color: var(--pine); }
+    .shots { display: grid; grid-template-columns: 1.3fr 0.7fr; gap: 0.8rem; }
+    .shot { min-height: 220px; display: flex; flex-direction: column; justify-content: flex-end; background:
+      linear-gradient(180deg, rgba(30, 63, 56, 0.08), rgba(30, 63, 56, 0.02)),
+      repeating-linear-gradient(0deg, transparent, transparent 27px, rgba(30, 63, 56, 0.06) 28px); }
+    .shot span { font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    footer { border-top: 1px solid var(--line); padding: 1.4rem; color: var(--muted); }
+    footer .wrap { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    @media (max-width: 800px) {
+      .grid, .shots, .rq article { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <p class="eyebrow">Mechanical and process engineering</p>
+      <h1>Engineering AI Assistant</h1>
+      <p class="lede">A knowledge-driven assistant for pressure equipment and heat exchangers. Engineers ask in their own words and get an answer that stays tied to a clause, a page, and a revision. The engineer still decides.</p>
+      <div class="actions">
+        <a class="btn solid" href="https://huggingface.co/spaces/hamid-ahmadiasl/engineering-ai-assistant">Open the live demo</a>
+        <a class="btn line" href="https://github.com/hamid-ahmadiasl/engineering-ai-assistant">Source on GitHub</a>
+      </div>
+    </div>
+  </header>
+  <main class="wrap">
+    <section>
+      <h2>The problem</h2>
+      <div class="prose">
+        <p>On a heat exchanger or a pressure vessel, the answer to a simple question is scattered. A project specification, a datasheet, a vendor offer, and a code edition each say something slightly different. Finding the page is slow. Treating the strictest number as the winner is also wrong: the contract already says which document governs.</p>
+        <p>General chat tools will answer anyway, without the project file and without a page number. That is not usable next to a nameplate. This assistant is decision support. It retrieves, it labels what is a requirement and what is only a reading of the file, and it stops before the design decision.</p>
+      </div>
+    </section>
+    <section>
+      <h2>What the prototype does</h2>
+      <div class="grid">
+        <article class="card">
+          <h3>Global questions</h3>
+          <p>Background notes on design pressure, TEMA letters, and the different jobs of the equipment standards. The notes are original demo text, not a licensed code.</p>
+        </article>
+        <article class="card">
+          <h3>Project files</h3>
+          <p>Upload a PDF or an Excel datasheet. Text and tables are indexed with the file, page, and revision, in a store that other projects cannot see.</p>
+        </article>
+        <article class="card">
+          <h3>Evidence</h3>
+          <p>Every answer cites the source, clause, page, and revision, and marks an explicit requirement, a recommendation, or an interpretation.</p>
+        </article>
+        <article class="card">
+          <h3>Conflicts</h3>
+          <p>Specification, datasheet, and vendor offer are compared with the project’s own hierarchy. A higher vendor number does not automatically govern.</p>
+        </article>
+        <article class="card">
+          <h3>Troubleshooting</h3>
+          <p>A plain-language problem returns considerations and limits, next to the project constraints such as design pressure and MDMT.</p>
+        </article>
+        <article class="card">
+          <h3>Accounts</h3>
+          <p>Sign-in, invite codes, and a monthly credit balance. The public demo can offer a short anonymous trial and keep uploads closed.</p>
+        </article>
+      </div>
+    </section>
+    <section>
+      <h2>Architecture</h2>
+      <p>Two stores stay separate: one global knowledge base, and one directory per project. They are combined only at the moment of the question. An orchestration step applies the document hierarchy before any wording is produced.</p>
+      <div class="diagram" role="img" aria-label="Diagram of the assistant. The engineer talks to the chat. The orchestrator queries a global store and one project store, applies precedence, then either a language model or an extractive writer produces cited blocks.">
+        <svg viewBox="0 0 920 280" width="100%" height="280">
+          <rect x="20" y="100" width="150" height="70" rx="14" fill="#1e3f38"/>
+          <text x="95" y="140" text-anchor="middle" fill="#f6f3ea" font-family="Georgia, serif" font-size="16">Engineer</text>
+          <rect x="230" y="100" width="160" height="70" rx="14" fill="#fbf8f2" stroke="#e0d6c6"/>
+          <text x="310" y="140" text-anchor="middle" font-family="Georgia, serif" font-size="16">Chat and evidence</text>
+          <rect x="450" y="90" width="170" height="90" rx="14" fill="#fff7ef" stroke="#b85c38"/>
+          <text x="535" y="128" text-anchor="middle" font-family="Georgia, serif" font-size="16">Orchestrator</text>
+          <text x="535" y="150" text-anchor="middle" fill="#5e584e" font-size="12">precedence, then words</text>
+          <rect x="690" y="30" width="200" height="64" rx="14" fill="#fbf8f2" stroke="#e0d6c6"/>
+          <text x="790" y="58" text-anchor="middle" font-size="14">Global knowledge store</text>
+          <text x="790" y="76" text-anchor="middle" fill="#5e584e" font-size="12">shared, demo notes or your files</text>
+          <rect x="690" y="180" width="200" height="64" rx="14" fill="#fbf8f2" stroke="#e0d6c6"/>
+          <text x="790" y="208" text-anchor="middle" font-size="14">One project store</text>
+          <text x="790" y="226" text-anchor="middle" fill="#5e584e" font-size="12">isolated per project</text>
+          <path d="M170 135 H230" stroke="#1e3f38" stroke-width="2"/>
+          <path d="M390 135 H450" stroke="#1e3f38" stroke-width="2"/>
+          <path d="M620 120 H690" stroke="#1e3f38" stroke-width="2"/>
+          <path d="M620 155 H690 V212" stroke="#1e3f38" stroke-width="2" fill="none"/>
+        </svg>
+      </div>
+    </section>
+    <section>
+      <h2>Research questions</h2>
+      <div class="rq">
+        <article>
+          <strong>RQ1</strong>
+          <p>Can a hybrid of lexical and vector search, over a global store and a separate project store, answer engineering questions from those documents rather than from the model’s memory?</p>
+        </article>
+        <article>
+          <strong>RQ2</strong>
+          <p>Can each answer show its source, clause or section, page, and revision or edition, and keep an explicit requirement distinct from a recommendation and from an interpretation?</p>
+        </article>
+        <article>
+          <strong>RQ3</strong>
+          <p>Can conflicts between a project specification, a datasheet, and a vendor offer be explained with the project’s document hierarchy, instead of a rule that the strictest number wins?</p>
+        </article>
+        <article>
+          <strong>RQ4</strong>
+          <p>Are the citations reliable? A small fixed set of questions checks that the cited document, clause, and revision are the governing source. The script is <code>eval/rq4_traceability.py</code> in the repository.</p>
+        </article>
+      </div>
+    </section>
+    <section>
+      <h2>Screenshots</h2>
+      <div class="shots">
+        <div class="shot">
+          <span>Placeholder · chat and citation panel</span>
+          <h3>Ask HX-2201 which pressure governs</h3>
+          <p>The running assistant shows the specification clause on the right, with the datasheet and the vendor offer marked as a conflict and a deviation.</p>
+        </div>
+        <div class="shot">
+          <span>Placeholder · conflict card</span>
+          <h3>12 barg governs, not 14</h3>
+          <p>The vendor’s higher tube-side pressure stays an offer.</p>
+        </div>
+      </div>
+      <p>Replace these frames with captures from the live Space when you have them. Drop the images in <code>docs/</code> and point the frames at them.</p>
+    </section>
+    <section>
+      <h2>Author</h2>
+      <div class="card">
+        <h3>Hamid Ahmadi Asl</h3>
+        <p>AI and computational science researcher. This prototype is the initial slice of a decision-support assistant for mechanical and process work: pressure equipment, heat exchangers, and oil and gas project documents.</p>
+        <p><a href="https://github.com/hamid-ahmadiasl">github.com/hamid-ahmadiasl</a><br />
+        <a href="https://hamid-ahmadiasl.github.io">hamid-ahmadiasl.github.io</a></p>
+      </div>
+    </section>
+  </main>
+  <footer>
+    <div class="wrap">
+      <span>Decision support only. Demo corpus is not a licensed standard.</span>
+      <span><a href="https://huggingface.co/spaces/hamid-ahmadiasl/engineering-ai-assistant">Live demo</a></span>
+    </div>
+  </footer>
+</body>
+</html>

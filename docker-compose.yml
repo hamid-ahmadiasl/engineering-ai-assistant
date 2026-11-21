@@ -1,0 +1,36 @@
+services:
+  assistant:
+    build: .
+    ports:
+      - "7860:7860"
+    environment:
+      PORT: "7860"
+      # Local compose is the full prototype. The image itself defaults DEMO_MODE=true
+      # for a public Hugging Face Space.
+      DEMO_MODE: ${DEMO_MODE:-false}
+      DEMO_ALLOW_REGISTRATION: ${DEMO_ALLOW_REGISTRATION:-true}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-fastembed}
+      LLM_PRESET: ${LLM_PRESET:-groq}
+      LLM_PROVIDER: ${LLM_PROVIDER:-auto}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-demo-admin-changeme}
+      SECRET_KEY: ${SECRET_KEY:-local-dev-secret-change-me}
+      DATA_DIR: /app/data
+      DATABASE_URL: ${DATABASE_URL:-}
+      SEED_ON_STARTUP: "true"
+      OCR_ENABLED: ${OCR_ENABLED:-false}
+    volumes:
+      - assistant-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7860/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+volumes:
+  assistant-data:
