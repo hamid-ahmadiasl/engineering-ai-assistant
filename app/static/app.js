@@ -101,6 +101,22 @@ function renderUser() {
   const locked = user.is_anonymous || user.plan === "trial";
   $("upload-form").hidden = locked;
   $("standard-form").hidden = locked;
+  refreshDrive();
+}
+
+async function refreshDrive() {
+  if (!state.token) return;
+  try {
+    const status = await api("/api/drive/status");
+    state.drive = status;
+    const button = $("connect-drive");
+    button.hidden = !status.available;
+    button.textContent = status.connected ? t("disconnectDrive") : t("connectDrive");
+    const hint = $("drive-hint");
+    if (hint) hint.hidden = !(status.required && !status.connected);
+  } catch {
+    /* The library still works when Drive status cannot be read. */
+  }
 }
 
 async function refreshLibrary() {
@@ -177,6 +193,16 @@ function docItem(doc, canDelete) {
     remove.textContent = t("deleteDoc");
     remove.addEventListener("click", () => deleteDocument(doc));
     actions.appendChild(remove);
+  }
+  if (doc.storage === "temporary") {
+    const badge = document.createElement("span");
+    badge.textContent = t("temporaryFile");
+    li.appendChild(badge);
+  }
+  if (doc.status === "source_missing") {
+    const badge = document.createElement("span");
+    badge.textContent = t("sourceMissing");
+    li.appendChild(badge);
   }
   li.append(strong, meta, actions);
   return li;
@@ -475,6 +501,16 @@ $("trial").addEventListener("click", async () => {
   } catch (error) {
     setError("login", error.message);
   }
+});
+
+$("connect-drive").addEventListener("click", async () => {
+  if (state.drive && state.drive.connected) {
+    await api("/api/drive/disconnect", { method: "POST" });
+    await refreshDrive();
+    return;
+  }
+  const result = await api("/api/drive/connect");
+  if (result.url) window.location = result.url;
 });
 
 $("logout").addEventListener("click", () => {

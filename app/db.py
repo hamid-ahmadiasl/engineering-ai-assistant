@@ -39,6 +39,10 @@ def get_engine() -> Engine:
     connect_args = {}
     if url.startswith("sqlite"):
         connect_args["check_same_thread"] = False
+    elif url.startswith("postgresql") and (":6543" in url or "pgbouncer=true" in url):
+        # Supabase's transaction pooler cannot use prepared statements. The
+        # session pooler (port 5432) does not need this.
+        connect_args["prepare_threshold"] = None
     engine = create_engine(url, connect_args=connect_args, pool_pre_ping=True)
     if url.startswith("sqlite"):
 
@@ -113,11 +117,33 @@ FTS_TRIGGERS = [
 ]
 
 
+def _ensure_column(conn, table: str, column: str, ddl: str) -> None:
+    dialect = conn.dialect.name
+    if dialect == "sqlite":
+        rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+        present = {row[1] for row in rows}
+    else:
+        rows = conn.execute(
+            text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = :table"
+            ),
+            {"table": table},
+        ).fetchall()
+        present = {row[0] for row in rows}
+    if column not in present:
+        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+
+
 def init_db() -> None:
     from app import models  # noqa: F401
 
     engine = get_engine()
     Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        _ensure_column(conn, "users", "drive_refresh_token", "TEXT DEFAULT ''")
+        _ensure_column(conn, "documents", "drive_file_id", "VARCHAR(128) DEFAULT ''")
+        _ensure_column(conn, "documents", "storage", "VARCHAR(20) DEFAULT ''")
     if str(engine.url).startswith("sqlite"):
         with engine.begin() as conn:
             conn.execute(text(FTS_SQL))

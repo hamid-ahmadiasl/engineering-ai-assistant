@@ -62,6 +62,7 @@
         <button type="button" data-lang="en">EN</button>
         <button type="button" data-lang="fa">فا</button>
       </div>
+      <button id="connect-drive" class="ghost small" type="button" hidden data-i18n="connectDrive">Connect Google Drive</button>
       <button id="open-admin" class="ghost small" type="button" hidden data-i18n="admin">Admin</button>
       <button id="logout" class="ghost small" type="button" data-i18n="signOut">Sign out</button>
     </header>
@@ -73,6 +74,7 @@
             <h2 data-i18n="codesStandards">Codes &amp; Standards</h2>
           </header>
           <p class="hint" data-i18n="codesHint">Licensed codes for this project only, such as ASME VIII or TEMA. They stay out of the global notes.</p>
+          <p id="drive-hint" class="hint" hidden data-i18n="driveHint">Connect your own Google Drive before uploading. Files stay in your Drive until you delete them.</p>
           <ul id="standard-docs" class="doc-list"></ul>
           <form id="standard-form" class="upload">
             <input name="file" type="file" accept=".pdf,.xlsx,.xlsm,.txt,.md,.csv,.png,.jpg,.jpeg,.tif,.tiff" />

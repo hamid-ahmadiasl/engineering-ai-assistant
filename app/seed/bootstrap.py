@@ -181,6 +181,10 @@ def bootstrap_admin(db: Session) -> None:
         if existing.role != "admin":
             existing.role = "admin"
             existing.plan = "admin"
+        from app.auth import hash_password, verify_password
+
+        if settings.admin_password and not verify_password(settings.admin_password, existing.password_hash or ""):
+            existing.password_hash = hash_password(settings.admin_password)
         return
     user = new_user(
         email=settings.admin_email,

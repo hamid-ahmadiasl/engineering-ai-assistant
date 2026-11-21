@@ -29,6 +29,7 @@ class User(Base):
     disabled: Mapped[bool] = mapped_column(Boolean, default=False)
     stripe_customer_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    drive_refresh_token: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
@@ -109,6 +110,8 @@ class Document(Base):
     page_count: Mapped[int] = mapped_column(Integer, default=0)
     corpus_label: Mapped[str] = mapped_column(String(200), default="")
     uploaded_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    drive_file_id: Mapped[str] = mapped_column(String(128), default="")
+    storage: Mapped[str] = mapped_column(String(20), default="")
     status: Mapped[str] = mapped_column(String(40), default="ready")
     warning: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

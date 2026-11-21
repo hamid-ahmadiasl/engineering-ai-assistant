@@ -11,6 +11,7 @@ os.environ["EMBEDDING_PROVIDER"] = "hash"
 os.environ["LLM_PROVIDER"] = "none"
 os.environ["ANONYMIZED_TELEMETRY"] = "FALSE"
 os.environ["BCRYPT_ROUNDS"] = "4"
+os.environ["REBUILD_VECTORS"] = "false"
 
 
 @pytest.fixture()

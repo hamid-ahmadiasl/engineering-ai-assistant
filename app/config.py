@@ -99,6 +99,15 @@ class Settings:
     stripe_price_pro: str
     stripe_success_url: str
     stripe_cancel_url: str
+    google_client_id: str
+    google_client_secret: str
+    public_base_url: str
+    token_enc_key: str
+    allow_local_uploads: bool
+
+    @property
+    def google_configured(self) -> bool:
+        return bool(self.google_client_id and self.google_client_secret)
 
     @property
     def llm_configured(self) -> bool:
@@ -203,4 +212,9 @@ def get_settings() -> Settings:
         stripe_price_pro=os.getenv("STRIPE_PRICE_PRO", "").strip(),
         stripe_success_url=os.getenv("STRIPE_SUCCESS_URL", f"{app_base}/?billing=success"),
         stripe_cancel_url=os.getenv("STRIPE_CANCEL_URL", f"{app_base}/?billing=cancel"),
+        google_client_id=os.getenv("GOOGLE_CLIENT_ID", "").strip(),
+        google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET", "").strip(),
+        public_base_url=(os.getenv("PUBLIC_BASE_URL") or app_base).rstrip("/"),
+        token_enc_key=os.getenv("TOKEN_ENC_KEY", "").strip(),
+        allow_local_uploads=_flag("ALLOW_LOCAL_UPLOADS", False),
     )

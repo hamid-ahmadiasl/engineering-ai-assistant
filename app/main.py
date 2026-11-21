@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from app.locale import localize_detail
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -73,6 +73,9 @@ async def lifespan(_app: FastAPI):
         embedding_backend(),
         settings.stripe_enabled,
     )
+    from app.stores.rebuild import schedule_vector_rebuild
+
+    schedule_vector_rebuild()
     yield
 
 
@@ -155,6 +158,7 @@ def _public_user(user: User) -> dict:
         "role": user.role,
         "plan": user.plan,
         "is_anonymous": user.is_anonymous,
+        "drive_connected": bool(getattr(user, "drive_refresh_token", "") or ""),
         "credits": quota_detail(user),
         "created_at": user.created_at.isoformat() + "Z",
     }
@@ -184,6 +188,8 @@ def _public_document(doc: Document) -> dict:
         "page_count": doc.page_count,
         "corpus_label": doc.corpus_label,
         "status": doc.status,
+        "storage": getattr(doc, "storage", "") or "",
+        "drive_file_id": getattr(doc, "drive_file_id", "") or "",
         "warning": doc.warning,
         "created_at": doc.created_at.isoformat() + "Z",
     }
@@ -407,6 +413,112 @@ def _mentioned_documents(db: Session, user: User, project: Project | None, docum
     return unique
 
 
+def _mark_missing_sources(db: Session, docs: list[Document]) -> None:
+    from app.drive import DriveError, client_for_token, decrypt_token
+
+    owners: dict[str, list[Document]] = {}
+    for doc in docs:
+        if doc.drive_file_id and doc.status != "source_missing" and doc.uploaded_by:
+            owners.setdefault(doc.uploaded_by, []).append(doc)
+    for owner_id, owned in owners.items():
+        owner = db.get(User, owner_id)
+        token = decrypt_token(owner.drive_refresh_token or "") if owner else ""
+        if not token:
+            continue
+        client = client_for_token(token)
+        for doc in owned[:20]:
+            try:
+                present = client.exists(doc.drive_file_id)
+            except DriveError:
+                continue
+            if not present:
+                doc.status = "source_missing"
+
+
+def _original_bytes(upload: UploadFile) -> tuple[str, bytes]:
+    name = Path(upload.filename or "upload").name
+    suffix = Path(name).suffix.lower()
+    if suffix not in ALLOWED_SUFFIXES:
+        raise HTTPException(status_code=400, detail="Upload a PDF, Excel workbook, text file, or image.")
+    data = upload.file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="That file is empty.")
+    return name, data
+
+
+def _keep_original(
+    user: User,
+    *,
+    project: Project | None,
+    filename: str,
+    data: bytes,
+    doc_type: str,
+    scope: str,
+) -> tuple[Path, dict]:
+    """Save the original in the uploader's Drive, or on local disk when Drive is off."""
+    from app.drive import (
+        GLOBAL_FOLDER,
+        ROOT_FOLDER,
+        DriveError,
+        client_for_token,
+        decrypt_token,
+        section_folder,
+        write_local_copy,
+    )
+
+    settings = get_settings()
+    bucket = project.id if project is not None else "global"
+
+    def local(kind: str) -> tuple[Path, dict]:
+        path = write_local_copy(data, filename, settings.data_dir / "uploads" / bucket / uuid.uuid4().hex)
+        return path, {"storage": kind, "drive_file_id": "", "stored_path": str(path)}
+
+    if not settings.google_configured:
+        return local("")
+    token = decrypt_token(user.drive_refresh_token or "")
+    if not token:
+        if settings.allow_local_uploads:
+            return local("temporary")
+        raise HTTPException(status_code=409, detail="Connect Google Drive before uploading files.")
+    folders = [
+        ROOT_FOLDER,
+        project.code if project is not None else GLOBAL_FOLDER,
+        section_folder(doc_type, scope),
+    ]
+    try:
+        file_id = client_for_token(token).put_in_folders(folders, filename, data, "application/octet-stream")
+    except DriveError as exc:
+        log.warning("Drive upload failed: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="Google Drive rejected the upload. Connect Drive again and retry.",
+        ) from exc
+    path = write_local_copy(data, filename, settings.data_dir / "tmp" / uuid.uuid4().hex)
+    return path, {"storage": "gdrive", "drive_file_id": file_id, "stored_path": ""}
+
+
+def _apply_storage(document: Document, info: dict) -> None:
+    document.storage = info["storage"]
+    document.drive_file_id = info["drive_file_id"]
+    if info["storage"] == "gdrive":
+        document.stored_path = ""
+
+
+def _remove_drive_file(db: Session, document: Document) -> None:
+    from app.drive import DriveError, client_for_token, decrypt_token
+
+    if not document.drive_file_id or not document.uploaded_by:
+        return
+    owner = db.get(User, document.uploaded_by)
+    token = decrypt_token(owner.drive_refresh_token or "") if owner else ""
+    if not token:
+        return
+    try:
+        client_for_token(token).delete(document.drive_file_id)
+    except DriveError as exc:
+        log.warning("Drive delete failed: %s", exc)
+
+
 def _save_upload(upload: UploadFile, dest_dir: Path) -> Path:
     suffix = Path(upload.filename or "").suffix.lower()
     if suffix not in ALLOWED_SUFFIXES:
@@ -423,7 +535,8 @@ def _save_upload(upload: UploadFile, dest_dir: Path) -> Path:
 def project_documents(project_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     project = get_project(db, project_id)
     assert_read(db, project, user)
-    docs = db.scalars(select(Document).where(Document.project_id == project.id).order_by(Document.title)).all()
+    docs = list(db.scalars(select(Document).where(Document.project_id == project.id).order_by(Document.title)))
+    _mark_missing_sources(db, docs)
     return {"documents": [_public_document(doc) for doc in docs]}
 
 
@@ -444,9 +557,16 @@ async def upload_project_document(
     project = get_project(db, project_id)
     assert_write(db, project, user)
     rate_limit(db, f"upload:{user.id}", 30, hours=1)
-    dest = get_settings().data_dir / "uploads" / project.id / uuid.uuid4().hex
-    path = _save_upload(file, dest)
-    assert_upload_allowed(db, user, path.stat().st_size)
+    filename, data = _original_bytes(file)
+    assert_upload_allowed(db, user, len(data))
+    path, stored = _keep_original(
+        user,
+        project=project,
+        filename=filename,
+        data=data,
+        doc_type=doc_type,
+        scope="project",
+    )
     try:
         document = ingest_path(
             db,
@@ -465,7 +585,11 @@ async def upload_project_document(
             ),
         )
     except ValueError as exc:
+        if stored.get("drive_file_id"):
+            document_stub = Document(drive_file_id=stored["drive_file_id"], uploaded_by=user.id)
+            _remove_drive_file(db, document_stub)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _apply_storage(document, stored)
     return _public_document(document)
 
 
@@ -481,13 +605,15 @@ def remove_document(
     document = db.get(Document, document_id)
     if document is None or document.project_id != project.id:
         raise HTTPException(status_code=404, detail="Document not found.")
+    _remove_drive_file(db, document)
     delete_document(db, document)
     return {"ok": True}
 
 
 @app.get("/api/kb/documents")
 def kb_documents(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    docs = db.scalars(select(Document).where(Document.scope == "global").order_by(Document.title)).all()
+    docs = list(db.scalars(select(Document).where(Document.scope == "global").order_by(Document.title)))
+    _mark_missing_sources(db, docs)
     return {"documents": [_public_document(doc) for doc in docs]}
 
 
@@ -502,8 +628,16 @@ async def upload_kb_document(
     db: Session = Depends(get_db),
 ) -> dict:
     require_admin(user)
-    dest = get_settings().data_dir / "uploads" / "global" / uuid.uuid4().hex
-    path = _save_upload(file, dest)
+    filename, data = _original_bytes(file)
+    assert_upload_allowed(db, user, len(data))
+    path, stored = _keep_original(
+        user,
+        project=None,
+        filename=filename,
+        data=data,
+        doc_type=doc_type,
+        scope="global",
+    )
     document = ingest_path(
         db,
         path,
@@ -520,6 +654,7 @@ async def upload_kb_document(
             "statement_class_default": "informative",
         },
     )
+    _apply_storage(document, stored)
     return _public_document(document)
 
 
@@ -597,6 +732,58 @@ def get_conversation(conversation_id: str, user: User = Depends(current_user), d
             {"id": msg.id, "role": msg.role, "content": json.loads(msg.content_json)} for msg in messages
         ],
     }
+
+
+@app.get("/api/drive/status")
+def drive_status(user: User = Depends(current_user)) -> dict:
+    settings = get_settings()
+    return {
+        "connected": bool(user.drive_refresh_token),
+        "required": settings.google_configured and not settings.allow_local_uploads,
+        "temporary_uploads": settings.allow_local_uploads,
+        "available": settings.google_configured,
+    }
+
+
+@app.get("/api/drive/connect")
+def drive_connect(user: User = Depends(current_user)) -> dict:
+    if user.is_anonymous:
+        raise HTTPException(status_code=403, detail="Sign in before connecting Google Drive.")
+    from app.drive import DriveError, authorization_url
+
+    try:
+        url = authorization_url(user.id)
+    except DriveError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"url": url}
+
+
+@app.get("/api/drive/callback")
+def drive_callback(code: str = "", state: str = "", db: Session = Depends(get_db)) -> RedirectResponse:
+    from app.drive import DriveError, encrypt_token, exchange_code, read_state
+
+    settings = get_settings()
+    try:
+        user_id = read_state(state)
+        refresh = exchange_code(code)
+    except DriveError:
+        return RedirectResponse(f"{settings.public_base_url}/?drive=error")
+    user = db.get(User, user_id)
+    if user is None:
+        return RedirectResponse(f"{settings.public_base_url}/?drive=error")
+    user.drive_refresh_token = encrypt_token(refresh)
+    return RedirectResponse(f"{settings.public_base_url}/?drive=connected")
+
+
+@app.post("/api/drive/disconnect")
+def drive_disconnect(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    from app.drive import decrypt_token, revoke_token
+
+    token = decrypt_token(user.drive_refresh_token or "")
+    revoke_token(token)
+    user.drive_refresh_token = ""
+    db.add(user)
+    return {"connected": False}
 
 
 @app.get("/api/admin/llm-check")

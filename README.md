@@ -276,6 +276,48 @@ With `DEMO_MODE=true`:
 - The anonymous trial is a few questions on HX-2201 and cannot upload.
 - Chat is rate-limited per account, and uploads are capped per plan per day.
 
+## Google Drive storage
+
+Uploads go to **each user's own** Google Drive, not a shared bucket. Account data, document rows, and chunk text (page, clause, revision, edition) stay in Postgres (`DATABASE_URL`). The vector index is rebuilt from those chunks in the background when the Render disk is empty, so a restart does not require uploading again. Deleting a file in the app deletes the Drive file, the database rows, and the vectors. If someone deletes the file in Drive itself, the indexed text stays and the row is marked source file missing.
+
+Until you add yourself as a test user and connect Drive, uploads are refused. Set `ALLOW_LOCAL_UPLOADS=true` only for a local machine; those copies are marked temporary and disappear when the disk does.
+
+### Google Cloud Console
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/) and create a project.
+2. APIs & Services → Library → enable **Google Drive API**.
+3. APIs & Services → OAuth consent screen → **External** → Testing. Add the Google accounts that will use the demo (the owner included). Testing mode allows about **100 test users** until the app is verified.
+4. APIs & Services → Credentials → Create credentials → **OAuth client ID** → Application type **Web application**.
+5. Authorized redirect URI, exactly:
+
+   `https://engineering-ai-assistant-i9fb.onrender.com/api/drive/callback`
+
+6. Copy the client id and secret into `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+7. Set `PUBLIC_BASE_URL` to `https://engineering-ai-assistant-i9fb.onrender.com` (no trailing path).
+8. In the app, each person uses **Connect Google Drive**. The request uses scope `https://www.googleapis.com/auth/drive.file` only, `access_type=offline`, and `prompt=consent`. The refresh token is encrypted with `TOKEN_ENC_KEY` or, if that is empty, `SECRET_KEY`. **Disconnect** revokes it and deletes the stored token.
+
+Files are created under `Engineering AI Assistant/<project code>/Codes & Standards` or `Project documents` in that user's Drive. Global knowledge uploads use the admin's Drive.
+
+### Supabase for the database
+
+1. Create a project at [Supabase](https://supabase.com/).
+2. Project Settings → Database → **Connection string** → **Session pooler** (port 5432, not the 6543 transaction pooler).
+3. Paste it into Render as `DATABASE_URL`, and add `?sslmode=require` if it is not already there.
+4. A Neon Postgres URL with `sslmode=require` works the same way.
+
+The owner sets these on the Render service (Blueprint keys are `sync: false`):
+
+| Variable | Value |
+| --- | --- |
+| `DATABASE_URL` | Supabase Session pooler URI, `sslmode=require` |
+| `GOOGLE_CLIENT_ID` | OAuth web client id |
+| `GOOGLE_CLIENT_SECRET` | OAuth web client secret |
+| `PUBLIC_BASE_URL` | `https://engineering-ai-assistant-i9fb.onrender.com` |
+| `TOKEN_ENC_KEY` | Optional long random string. Empty uses `SECRET_KEY`. |
+| `ADMIN_EMAIL` | Bootstrap admin email |
+| `ADMIN_PASSWORD` | Bootstrap admin password. Changing it updates the stored hash on the next boot. |
+| `GROQ_API_KEY` | Groq key, if model prose is wanted |
+
 ## Limitations
 
 - Demo notes are original teaching text. They are not a code or a calculation.
